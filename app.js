@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "3.5";
+  const VERSION = "4.2-v38base";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
@@ -35,6 +35,7 @@
     routeSubtitle: document.getElementById("routeSubtitle"),
     routeMeta: document.getElementById("routeMeta"),
     routeWarning: document.getElementById("routeWarning"),
+    routeAdvancedBtn: document.getElementById("toggleAdvancedRouteBtn"),
     nextInstruction: document.getElementById("nextInstruction"),
     startNavigationBtn: document.getElementById("startNavigationBtn"),
     favoriteDestinationBtn: document.getElementById("favoriteDestinationBtn"),
@@ -74,14 +75,21 @@
     route: null,
     routeLayer: null,
     routeShadowLayer: null,
+    carRouteLayer: null,
     destMarker: null,
     startMarker: null,
+    tapPreviewMarker: null,
     userMarker: null,
     accuracyCircle: null,
     lastRerouteAt: 0,
     isRouting: false,
     routeUsedFallback: false,
-    routeCardVisible: false
+    routeCardVisible: false,
+    panelAnimationTimer: null,
+    carRouteCoords: null,
+    basicRouteInfo: "",
+    advancedRouteInfo: "",
+    advancedRouteShown: false
   };
 
   const map = L.map("map", {
@@ -102,22 +110,63 @@
     return active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
   }
 
+
+  function isDesktopLayout() {
+    return window.matchMedia && window.matchMedia("(min-width: 700px)").matches;
+  }
+
+  function autoMinimizeForDestination() {
+    // Mobil: minimera alltid sök/favorit när mål valts så ruttkortet får plats.
+    // Dator/större skärm: låt panelerna vara öppna, men manuell minimering fungerar.
+    if (!isDesktopLayout()) {
+      setPanelCollapsed(true, { force: true });
+    } else {
+      setRouteCompactMode();
+    }
+  }
+
   function setPanelCollapsed(collapsed, options = {}) {
     if (state.navigating) return;
     if (collapsed && isTypingInInput() && !options.force) return;
 
-    state.panelCollapsed = Boolean(collapsed);
-    document.body.classList.toggle("panel-collapsed", state.panelCollapsed);
+    const next = Boolean(collapsed);
+    const changed = state.panelCollapsed !== next;
+    clearTimeout(state.panelAnimationTimer);
+    el.panel.classList.remove("panel-opening", "panel-closing", "panel-simple-opening", "panel-simple-closing");
 
-    if (el.panelHandleText) {
-      el.panelHandleText.textContent = state.panelCollapsed ? "🔍 Sök / favoriter" : "🔍 Minimera";
+    if (!changed) {
+      document.body.classList.toggle("panel-collapsed", next);
+      setRouteCompactMode();
+      return;
     }
 
-    setRouteCompactMode();
+    state.panelCollapsed = next;
 
-    if (state.panelCollapsed) {
-      el.destSuggestions.innerHTML = "";
-      el.startSuggestions.innerHTML = "";
+    if (el.panelHandleText) {
+      el.panelHandleText.textContent = next ? "🔍 Sök / favoriter" : "🔍 Minimera";
+    }
+
+    if (next) {
+      // V4.2: superenkel stängning. Bara snabb fade på innehållet innan panelen blir flärp.
+      el.panel.classList.add("panel-simple-closing");
+      setRouteCompactMode();
+
+      state.panelAnimationTimer = window.setTimeout(() => {
+        document.body.classList.add("panel-collapsed");
+        el.panel.classList.remove("panel-simple-closing");
+        el.destSuggestions.innerHTML = "";
+        el.startSuggestions.innerHTML = "";
+      }, 165);
+    } else {
+      // V4.2: öppna direkt och fadea in innehållet. Ingen clip-path/blur/scale.
+      document.body.classList.remove("panel-collapsed");
+      void el.panel.offsetWidth;
+      el.panel.classList.add("panel-simple-opening");
+      setRouteCompactMode();
+
+      state.panelAnimationTimer = window.setTimeout(() => {
+        el.panel.classList.remove("panel-simple-opening");
+      }, 170);
     }
   }
 
@@ -373,6 +422,19 @@
     }, 4500);
   }
 
+
+  function clearTapPreviewMarker() {
+    if (state.tapPreviewMarker) {
+      map.removeLayer(state.tapPreviewMarker);
+      state.tapPreviewMarker = null;
+    }
+  }
+
+  function showTapPreviewMarker(lat, lon) {
+    clearTapPreviewMarker();
+    state.tapPreviewMarker = L.marker([lat, lon]).addTo(map).bindPopup("Vald plats");
+  }
+
   function placeMarker(kind, place) {
     const latlng = [place.lat, place.lon];
     if (kind === "dest") {
@@ -380,6 +442,7 @@
       state.destMarker = L.marker(latlng).addTo(map).bindPopup("Destination");
     } else {
       if (state.startMarker) map.removeLayer(state.startMarker);
+    if (state.tapPreviewMarker) map.removeLayer(state.tapPreviewMarker);
       if (state.start.mode !== "gps") {
         state.startMarker = L.marker(latlng).addTo(map).bindPopup("Startpunkt");
       }
@@ -403,12 +466,13 @@
     el.startSection.classList.remove("hidden");
     el.destSuggestions.innerHTML = "";
     el.tapSheet.classList.add("hidden");
+    clearTapPreviewMarker();
     placeMarker("dest", state.destination);
     addRecent(state.destination);
     updateFavoriteButton();
 
-    if (routeNow && !place.fromMap && place.label !== "Kartpunkt") {
-      setPanelCollapsed(true, { force: true });
+    if (routeNow) {
+      autoMinimizeForDestination();
     }
 
     if (routeNow) calculateRoute();
@@ -430,6 +494,7 @@
     }
     el.startSuggestions.innerHTML = "";
     el.tapSheet.classList.add("hidden");
+    clearTapPreviewMarker();
     placeMarker("start", state.start);
     toast("Startpunkt vald");
     if (state.destination) calculateRoute();
@@ -445,25 +510,27 @@
 
 
   function setRouteCompactMode() {
-    const shouldCompact = state.routeCardVisible && !state.panelCollapsed && !state.navigating;
+    const shouldCompact = state.routeCardVisible && !state.panelCollapsed && !state.navigating && !isDesktopLayout();
     document.body.classList.toggle("route-compact", shouldCompact);
   }
 
   function showRouteCard() {
     if (state.routeCardVisible) {
+      // Redan öppen: uppdatera bara. Starta inte om animationen.
       el.routeCard.classList.remove("hidden", "route-exit", "route-enter");
       setRouteCompactMode();
       return;
     }
 
     state.routeCardVisible = true;
-    el.routeCard.classList.remove("hidden", "route-exit");
+    el.routeCard.classList.remove("hidden", "route-exit", "route-enter");
+    void el.routeCard.offsetWidth;
     el.routeCard.classList.add("route-enter");
     setRouteCompactMode();
 
     window.setTimeout(() => {
       el.routeCard.classList.remove("route-enter");
-    }, 330);
+    }, 360);
   }
 
   function hideRouteCard(animated = true) {
@@ -475,16 +542,19 @@
     if (!animated) {
       el.routeCard.classList.add("hidden");
       el.routeCard.classList.remove("route-enter", "route-exit");
+      setAdvancedRouteVisible(false);
       return;
     }
 
-    el.routeCard.classList.remove("route-enter");
+    el.routeCard.classList.remove("route-enter", "route-exit");
+    void el.routeCard.offsetWidth;
     el.routeCard.classList.add("route-exit");
 
     window.setTimeout(() => {
       el.routeCard.classList.add("hidden");
       el.routeCard.classList.remove("route-exit");
-    }, 260);
+      setAdvancedRouteVisible(false);
+    }, 300);
   }
 
   async function calculateRoute(options = {}) {
@@ -499,33 +569,58 @@
 
     state.isRouting = true;
     showRouteCard();
-    el.routeTitle.textContent = options.reroute ? "Beräknar om rutt..." : "Beräknar rutt...";
-    el.routeSubtitle.textContent = "Försöker undvika motorvägar och motortrafikleder";
+    el.routeTitle.textContent = options.reroute ? "Beräknar om rutt..." : "Beräknar smart A-traktorrutt...";
+    el.routeSubtitle.textContent = "Jämför bilväg mot kortare 30 km/h-rutter";
     el.routeMeta.textContent = "";
     el.nextInstruction.classList.add("hidden");
     el.routeWarning.classList.add("hidden");
+    if (el.routeAdvancedBtn) el.routeAdvancedBtn.classList.add("hidden");
 
     try {
-      let route = null;
+      let result = null;
+
       try {
-        route = await routeValhalla(start, dest);
+        result = await getSmartAtraktorRoute(start, dest);
         state.routeUsedFallback = false;
       } catch (err) {
-        console.warn("Valhalla failed, using OSRM fallback", err);
+        console.warn("Smart Valhalla routing failed, using OSRM fallback", err);
       }
 
-      if (!route || !route.coords.length) {
-        route = await routeOsrmFallback(start, dest);
+      if (!result || !result.route || !result.route.coords.length) {
+        const fallback = await routeOsrmFallback(start, dest);
+        result = {
+          route: fallback,
+          chosen: {
+            name: "Reservrutt",
+            summary: "OSRM-reserv",
+            useHighways: null
+          },
+          alternatives: [],
+          reason: "Valhalla svarade inte, så appen använder reservrutt."
+        };
         state.routeUsedFallback = true;
       }
 
+      const route = result.route;
       state.route = route;
+
+      // Avancerad jämförelse:
+      // Spara blå bilrutt, men visa den inte förrän användaren öppnar avancerad info.
+      if (result.osrmCar && result.osrmCar.coords && result.osrmCar.coords.length) {
+        state.carRouteCoords = result.osrmCar.coords;
+      } else if (result.carLike && result.carLike.coords && result.carLike.coords.length) {
+        state.carRouteCoords = result.carLike.coords;
+      } else {
+        state.carRouteCoords = null;
+      }
+      drawCarRoute(null);
+
       drawRoute(route.coords);
 
       const km = (route.distance / 1000).toFixed(1);
       const eta = etaFromMeters(route.distance);
       el.routeTitle.textContent = shortName(dest.label);
-      el.routeSubtitle.textContent = "A-traktor, uppskattad tid vid 30 km/h";
+      el.routeSubtitle.textContent = `${result.chosen.summary || result.chosen.name} · A-traktor, 30 km/h`;
       el.routeMeta.textContent = `${km} km · ${eta}`;
 
       updateStepsUI();
@@ -536,10 +631,11 @@
         el.nextInstruction.classList.remove("hidden");
       }
 
-      el.routeWarning.textContent = state.routeUsedFallback
-        ? "Reservrutt används. Motorvägar kan inte undvikas lika säkert. Kontrollera alltid skyltning."
-        : "Motorvägar och motortrafikleder är kraftigt nedprioriterade. Kontrollera alltid skyltning.";
-      el.routeWarning.classList.remove("hidden");
+      if (state.routeUsedFallback) {
+        setRouteInfoText("Reservrutt används. Motorvägar och motortrafikleder är kraftigt nedprioriterade, men kontrollera rutten extra noga.", "");
+      } else {
+        setRouteInfoText(basicRouteSafetyText(), buildSmartRouteMessage(result));
+      }
 
       fitRoute(start, dest, route.coords);
       updateFavoriteButton();
@@ -559,7 +655,164 @@
     map.fitBounds(bounds, { paddingTopLeft: [20, 230], paddingBottomRight: [20, 150] });
   }
 
-  async function routeValhalla(start, dest) {
+  async function getSmartAtraktorRoute(start, dest) {
+    // V3.8 beta:
+    // Lägg till OSRM:s vanliga bilrutt som egen kandidat.
+    // Den visas i blått och får också vara med i 30 km/h-jämförelsen.
+    const profiles = [
+      {
+        id: "car_like",
+        name: "Valhalla bilväg",
+        summary: "Valhalla bilväg",
+        useHighways: 0.75,
+        distancePreference: 0,
+        profilePenalty: 0,
+        description: "Valhalla bil-liknande rutt"
+      },
+      {
+        id: "atraktor_short",
+        name: "Kort 30-väg",
+        summary: "Kortare 30 km/h-väg",
+        useHighways: 0.30,
+        distancePreference: 1,
+        profilePenalty: 0,
+        description: "prioriterar kortare väg för 30 km/h"
+      },
+      {
+        id: "atraktor_direct",
+        name: "Direkt 30-väg",
+        summary: "Direkt 30 km/h-väg",
+        useHighways: 0.45,
+        distancePreference: 0.7,
+        profilePenalty: 0,
+        description: "balanserar direkt väg och kort distans"
+      }
+    ];
+
+    const [valhallaSettled, osrmSettled] = await Promise.all([
+      Promise.allSettled(profiles.map(profile => routeValhalla(start, dest, profile))),
+      routeOsrmCarCandidate(start, dest).then(
+        route => ({ status: "fulfilled", value: route }),
+        error => ({ status: "rejected", reason: error })
+      )
+    ]);
+
+    const alternatives = valhallaSettled
+      .map(res => res.status === "fulfilled" ? res.value : null)
+      .filter(Boolean)
+      .filter(route => route.coords && route.coords.length);
+
+    let osrmCar = null;
+    if (osrmSettled.status === "fulfilled" && osrmSettled.value && osrmSettled.value.coords && osrmSettled.value.coords.length) {
+      osrmCar = osrmSettled.value;
+      alternatives.push(osrmCar);
+    }
+
+    if (!alternatives.length) throw new Error("Inga rutter hittades");
+
+    const minDistance = Math.min(...alternatives.map(r => r.distance));
+    const carLike = osrmCar || alternatives.find(r => r.profile.id === "car_like") || alternatives[0];
+
+    for (const route of alternatives) {
+      route.score = scoreThirtyKmhRoute(route, minDistance, carLike);
+    }
+
+    alternatives.sort((a, b) => a.score - b.score);
+
+    let chosen = alternatives[0];
+
+    // Om OSRM-bilrutten är både tydligt kortare/enklare i 30 km/h, låt den vinna.
+    // Det hjälper fall där Valhalla inte föreslår t.ex. vägen via Linneryd men OSRM gör det.
+    if (osrmCar) {
+      const bestNonOsrm = alternatives.find(r => r.profile.id !== "osrm_car");
+      if (bestNonOsrm) {
+        const savedMeters = bestNonOsrm.distance - osrmCar.distance;
+        const savedMinutes = savedMeters / 1000 / 30 * 60;
+        const fewerOrSimilarTurns = osrmCar.turnCount <= bestNonOsrm.turnCount + 2;
+
+        if (savedMinutes >= 1.5 && fewerOrSimilarTurns) {
+          chosen = osrmCar;
+          chosen.smartReason = `Valde OSRM-bilrutten eftersom den verkar kortare/enklare även vid 30 km/h.`;
+        }
+      }
+    }
+
+    // Kortare kandidat kan vinna även om den inte är OSRM.
+    const reference = carLike;
+    const shorter = alternatives
+      .filter(r => r.distance < reference.distance - 250)
+      .sort((a, b) => a.score - b.score)[0];
+
+    if (shorter && chosen.profile.id !== "osrm_car") {
+      const savedMeters = reference.distance - shorter.distance;
+      const extraTurns = Math.max(0, shorter.turnCount - reference.turnCount);
+      const savedMinutes = savedMeters / 1000 / 30 * 60;
+
+      if (savedMinutes >= 2 || (savedMinutes >= 1 && extraTurns <= 2)) {
+        chosen = shorter;
+        chosen.smartReason = `Valde kortare väg som sparar cirka ${Math.round(savedMinutes)} min vid 30 km/h.`;
+      }
+    }
+
+    return {
+      route: chosen,
+      chosen: chosen.profile,
+      alternatives,
+      carLike,
+      osrmCar,
+      reason: chosen.smartReason || "Valde rutten med bäst 30 km/h-balans mellan kort distans och få onödiga svängar."
+    };
+  }
+
+  function scoreThirtyKmhRoute(route, minDistance, carLike) {
+    const extraDistanceVsBest = Math.max(0, route.distance - minDistance);
+    const extraTurnsVsCar = Math.max(0, route.turnCount - carLike.turnCount);
+    const savesDistanceVsCar = Math.max(0, carLike.distance - route.distance);
+
+    // A-traktor-tid = distans / 30 km/h.
+    // Eftersom maxhastigheten är ungefär samma överallt blir distans viktigast.
+    const atraktorTimeSeconds = route.distance / (30 / 3.6);
+
+    // Svängar straffas lätt. Detta ska undvika onödiga kringelkrokar, men inte döda bra kortare vägar.
+    const turnPenaltySeconds = route.turnCount * 12 + extraTurnsVsCar * 16;
+
+    // Extra distans jämfört med kortaste kandidat kostar.
+    const extraDistancePenaltySeconds = extraDistanceVsBest / (30 / 3.6) * 0.35;
+
+    // Kortare än referens-bilrutten får bonus.
+    const shorterBonusSeconds = savesDistanceVsCar / (30 / 3.6) * 0.18;
+
+    // OSRM-bilrutt får bara en minimal försiktighetskostnad, eftersom den kan innehålla vägar som Valhalla försöker undvika.
+    // Primary/riksväg/länsväg straffas inte separat.
+    const sourcePenalty = route.profile.id === "osrm_car" ? 35 : 0;
+
+    return atraktorTimeSeconds + turnPenaltySeconds + extraDistancePenaltySeconds - shorterBonusSeconds + sourcePenalty + route.profile.profilePenalty;
+  }
+
+  function buildSmartRouteMessage(result) {
+    const alts = result.alternatives || [];
+    const chosen = result.route;
+
+    if (!chosen) {
+      return "Optimerad för 30 km/h: kortare rimlig väg prioriteras före bilens snabbaste väg. Kontrollera alltid skyltning.";
+    }
+
+    const parts = [`30maps beta: ${result.reason}`];
+
+    if (alts.length > 1) {
+      const summary = alts
+        .slice()
+        .sort((a, b) => a.distance - b.distance)
+        .map(r => `${r.profile.name}: ${(r.distance/1000).toFixed(1)} km, ${r.turnCount} svängar`)
+        .join(" · ");
+      parts.push(summary);
+    }
+
+    parts.push("Blå linje = OSRM:s vanliga bilrutt. Grön linje = vald 30 km/h-rutt. Riksväg/länsväg straffas inte automatiskt. Om OSRM-bilrutten är kortare/enklare vid 30 km/h kan den väljas. Kontrollera alltid skyltning.");
+    return parts.join(" ");
+  }
+
+  async function routeValhalla(start, dest, profile = { id: "balanced", name: "Balanserad", summary: "30 km/h-rutt", useHighways: 0.25, profilePenalty: 220 }) {
     const payload = {
       locations: [
         { lat: start.lat, lon: start.lon, type: "break" },
@@ -569,7 +822,7 @@
       costing_options: {
         auto: {
           top_speed: 30,
-          use_highways: 0,
+          use_highways: profile.useHighways,
           use_tolls: 0,
           use_ferry: 0.15,
           country_crossing_penalty: 2000
@@ -604,16 +857,58 @@
       };
     }).filter(x => x.text);
 
+    const turnCount = countMeaningfulTurns(instructions);
+
     return {
       source: "Valhalla",
+      profile,
       coords,
       distance: (data.trip.summary?.length || 0) * 1000,
       cumulative,
-      instructions
+      instructions,
+      turnCount,
+      score: 0
     };
   }
 
+  function countMeaningfulTurns(instructions) {
+    return (instructions || []).filter(step => {
+      const t = String(step.text || "").toLowerCase();
+      return (
+        t.includes("sväng") ||
+        t.includes("rondell") ||
+        t.includes("avfart") ||
+        t.includes("håll vänster") ||
+        t.includes("håll höger") ||
+        t.includes("turn") ||
+        t.includes("roundabout")
+      );
+    }).length;
+  }
+
+  async function routeOsrmCarCandidate(start, dest) {
+    const route = await routeOsrmRaw(start, dest);
+    route.source = "OSRM";
+    route.profile = {
+      id: "osrm_car",
+      name: "OSRM bilrutt",
+      summary: "OSRM bilrutt",
+      useHighways: null,
+      profilePenalty: 0
+    };
+    route.score = 0;
+    return route;
+  }
+
   async function routeOsrmFallback(start, dest) {
+    const route = await routeOsrmRaw(start, dest);
+    route.source = "OSRM";
+    route.profile = { id: "fallback", name: "Reservrutt", summary: "OSRM-reserv", useHighways: null, profilePenalty: 999 };
+    route.score = 0;
+    return route;
+  }
+
+  async function routeOsrmRaw(start, dest) {
     const url = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${dest.lon},${dest.lat}?overview=full&geometries=geojson&steps=true`;
     const res = await fetch(url);
     if (!res.ok) throw new Error("Routingtjänsten svarar inte");
@@ -645,12 +940,15 @@
     }
 
     const finalCoords = coords.length ? coords : route.geometry.coordinates.map(c => [c[1], c[0]]);
+    const filteredInstructions = instructions.filter(x => x.text);
     return {
       source: "OSRM",
       coords: finalCoords,
       distance: route.distance,
       cumulative: buildCumulative(finalCoords),
-      instructions: instructions.filter(x => x.text)
+      instructions: filteredInstructions,
+      turnCount: countMeaningfulTurns(filteredInstructions),
+      score: 0
     };
   }
 
@@ -708,6 +1006,58 @@
       );
     }
     return cum;
+  }
+
+  function drawCarRoute(coords) {
+    if (state.carRouteLayer) map.removeLayer(state.carRouteLayer);
+    if (!coords || !coords.length) return;
+
+    state.carRouteLayer = L.polyline(coords, {
+      color: "#1e88ff",
+      weight: 5,
+      opacity: 0.72,
+      dashArray: "10 10",
+      lineCap: "round",
+      lineJoin: "round"
+    }).addTo(map);
+
+    // Lägg blå bilrutt bakom grön vald A-traktorrutt om båda finns.
+    if (state.routeShadowLayer) state.routeShadowLayer.bringToFront();
+    if (state.routeLayer) state.routeLayer.bringToFront();
+  }
+
+
+  function basicRouteSafetyText() {
+    return "Motorvägar och motortrafikleder är kraftigt nedprioriterade. Kontrollera alltid skyltning.";
+  }
+
+  function setRouteInfoText(basicText, advancedText) {
+    state.basicRouteInfo = basicText || basicRouteSafetyText();
+    state.advancedRouteInfo = advancedText || "";
+    setAdvancedRouteVisible(false);
+  }
+
+  function setAdvancedRouteVisible(show) {
+    state.advancedRouteShown = Boolean(show) && Boolean(state.advancedRouteInfo);
+
+    if (el.routeWarning) {
+      el.routeWarning.textContent = state.advancedRouteShown ? state.advancedRouteInfo : (state.basicRouteInfo || basicRouteSafetyText());
+      el.routeWarning.classList.remove("hidden");
+      el.routeWarning.classList.toggle("advanced-visible", state.advancedRouteShown);
+    }
+
+    if (el.routeAdvancedBtn) {
+      el.routeAdvancedBtn.classList.toggle("hidden", !state.advancedRouteInfo);
+      el.routeAdvancedBtn.textContent = state.advancedRouteShown ? "Dölj avancerat och blå bilrutt" : "Visa avancerat och blå bilrutt";
+      el.routeAdvancedBtn.setAttribute("aria-expanded", state.advancedRouteShown ? "true" : "false");
+    }
+
+    // Blå OSRM/bilrutt visas bara när avancerad info är öppen.
+    if (state.advancedRouteShown && state.carRouteCoords && state.carRouteCoords.length) {
+      drawCarRoute(state.carRouteCoords);
+    } else {
+      drawCarRoute(null);
+    }
   }
 
   function drawRoute(coords) {
@@ -989,6 +1339,7 @@
     el.startSection.classList.add("hidden");
     hideRouteCard(true);
     el.routeWarning.classList.add("hidden");
+    if (el.routeAdvancedBtn) el.routeAdvancedBtn.classList.add("hidden");
     el.nextInstruction.classList.add("hidden");
     el.stepsSheet.classList.add("hidden");
     el.tapSheet.classList.add("hidden");
@@ -996,16 +1347,24 @@
 
     state.destination = null;
     state.route = null;
+    state.carRouteCoords = null;
+    state.basicRouteInfo = "";
+    state.advancedRouteInfo = "";
+    state.advancedRouteShown = false;
     state.start = { mode: "gps", lat: state.userPos?.lat ?? null, lon: state.userPos?.lon ?? null, label: "Min position" };
 
     if (state.routeLayer) map.removeLayer(state.routeLayer);
     if (state.routeShadowLayer) map.removeLayer(state.routeShadowLayer);
+    if (state.carRouteLayer) map.removeLayer(state.carRouteLayer);
     if (state.destMarker) map.removeLayer(state.destMarker);
     if (state.startMarker) map.removeLayer(state.startMarker);
+    if (state.tapPreviewMarker) map.removeLayer(state.tapPreviewMarker);
     state.routeLayer = null;
     state.routeShadowLayer = null;
+    state.carRouteLayer = null;
     state.destMarker = null;
     state.startMarker = null;
+    state.tapPreviewMarker = null;
     toast("Rensat");
     setPanelCollapsed(false, { force: true });
   }
@@ -1020,6 +1379,7 @@
 
   function showTapSheet(lat, lon) {
     state.selectedTap = { lat, lon, label: fmtCoord(lat, lon), fromMap: true };
+    showTapPreviewMarker(lat, lon);
     el.tapCoords.textContent = fmtCoord(lat, lon);
     el.tapSheet.classList.remove("hidden");
   }
@@ -1095,6 +1455,7 @@
     el.favoriteDestinationBtn.addEventListener("click", () => saveFavorite(state.destination));
     el.startNavigationBtn.addEventListener("click", () => enterNavigationMode(true));
     el.toggleStepsBtn.addEventListener("click", showSteps);
+    if (el.routeAdvancedBtn) el.routeAdvancedBtn.addEventListener("click", () => setAdvancedRouteVisible(!state.advancedRouteShown));
     el.navStepsBtn.addEventListener("click", showSteps);
     el.closeStepsBtn.addEventListener("click", hideSteps);
     el.exitNavigationBtn.addEventListener("click", exitNavigationMode);
@@ -1120,7 +1481,10 @@
       copyText(fmtCoord(state.selectedTap.lat, state.selectedTap.lon));
     });
 
-    el.tapCloseBtn.addEventListener("click", () => el.tapSheet.classList.add("hidden"));
+    el.tapCloseBtn.addEventListener("click", () => {
+      el.tapSheet.classList.add("hidden");
+      clearTapPreviewMarker();
+    });
 
     el.themeBtn.addEventListener("click", () => {
       document.body.classList.toggle("dark");
@@ -1132,7 +1496,12 @@
         state.follow = false;
         el.followBtn.textContent = "🧭 Följ: av";
       }
-      setPanelCollapsed(true);
+
+      // Auto-minimera bara på telefon/liten skärm när kartan dras.
+      // På dator/större skärm ska sök/favoriter vara kvar öppen.
+      if (!isDesktopLayout()) {
+        setPanelCollapsed(true);
+      }
     });
 
     setupLongPress();
@@ -1156,6 +1525,7 @@
     renderRecents();
     initEvents();
     registerServiceWorker();
+    window.addEventListener("resize", setRouteCompactMode);
     startGeolocation();
     console.log(`30maps V${VERSION} loaded`);
   }

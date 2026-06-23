@@ -7,14 +7,15 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="30maps">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>30maps - A-Traktor Navigator V3.5.2</title>
+  <title>30maps - A-Traktor Navigator V4.2 Beta.2</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="./style.css?v=35">
+  <link rel="stylesheet" href="./style.css?v=42v38">
 </head>
 <body>
   <div id="map"></div>
+  <div id="betaBadge" class="beta-badge">BETA · v4.2 · v38-bas</div>
 
   <div id="boot" class="boot">
     <div class="boot-card">
@@ -91,6 +92,7 @@
     </div>
     <div id="nextInstruction" class="next-instruction hidden"></div>
     <div id="routeWarning" class="route-warning hidden"></div>
+    <button id="toggleAdvancedRouteBtn" class="advanced-route-btn hidden" type="button">Visa avancerat</button>
     <div class="route-actions">
       <button id="startNavigationBtn" class="primary-btn">Starta navigation</button>
       <button id="favoriteDestinationBtn">⭐ Spara mål</button>
@@ -140,6 +142,6 @@
   <div id="toast" class="toast hidden"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="./app.js?v=35"></script>
+  <script src="./app.js?v=42v38"></script>
 </body>
 </html>

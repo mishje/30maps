@@ -562,3 +562,246 @@ body.panel-collapsed #appPanel.panel .panel-handle-btn{
 body.panel-collapsed #routeCard.route-card{
   max-height:52vh;
 }
+
+
+/* V3.6 Smart A-traktor route info */
+.route-warning{
+  line-height:1.38;
+}
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard #routeWarning{
+  display:none!important;
+}
+
+
+/* V3.7 30 km/h routing message */
+.route-warning{
+  line-height:1.4;
+}
+
+
+/* Temporary V3.7 beta badge + car route display */
+.beta-badge{
+  position:fixed;
+  z-index:1600;
+  right:12px;
+  top:max(12px,env(safe-area-inset-top));
+  background:rgba(17,24,39,.88);
+  color:#fff;
+  border:1px solid rgba(255,255,255,.22);
+  border-radius:999px;
+  padding:8px 11px;
+  font-size:12px;
+  font-weight:850;
+  box-shadow:0 8px 28px rgba(0,0,0,.24);
+  backdrop-filter:blur(12px);
+  pointer-events:none;
+}
+body.dark .beta-badge{
+  background:rgba(255,255,255,.88);
+  color:#111821;
+  border-color:rgba(0,0,0,.12);
+}
+
+/* När panelen är öppen på mobil kan badgen hamna bakom. Flytta ner den lite. */
+@media (max-width:699px){
+  body:not(.panel-collapsed):not(.navigating) .beta-badge{
+    top:calc(max(12px,env(safe-area-inset-top)) + 64px);
+  }
+}
+
+
+/* =========================
+   V4 v38-base: panel, route card and desktop behavior
+   ========================= */
+
+/* Sök/favoriter ska tydligt animera när den öppnas och stängs. */
+#appPanel.panel.panel-opening{
+  animation:panelOpenV4 .32s ease both!important;
+}
+#appPanel.panel.panel-closing{
+  animation:panelCloseV4 .34s ease both!important;
+}
+@keyframes panelOpenV4{
+  from{opacity:.72;transform:translateY(-12px) scale(.985)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes panelCloseV4{
+  from{opacity:1;transform:translateY(0) scale(1)}
+  to{opacity:.86;transform:translateY(-10px) scale(.985)}
+}
+
+/* Ruttkort fram/bort. Startas inte om när kortet redan är öppet. */
+#routeCard.route-card.route-enter{
+  animation:routeInV4 .34s ease both!important;
+}
+#routeCard.route-card.route-exit{
+  animation:routeOutV4 .28s ease both!important;
+}
+@keyframes routeInV4{
+  from{opacity:0;transform:translateY(28px) scale(.985)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes routeOutV4{
+  from{opacity:1;transform:translateY(0) scale(1)}
+  to{opacity:0;transform:translateY(28px) scale(.985)}
+}
+
+/* Större skärm: göm/minska inte automatiskt. Manuell minimering via flärpen fungerar fortfarande. */
+@media (min-width:700px){
+  body:not(.panel-collapsed) #appPanel.panel{
+    max-height:calc(100vh - 32px)!important;
+  }
+
+  body:not(.panel-collapsed) #routeCard.route-card{
+    max-height:calc(100vh - 32px)!important;
+  }
+
+  body.route-compact #routeCard.route-card #routeWarning,
+  body.route-compact #routeCard.route-card #favoriteDestinationBtn,
+  body.route-compact #routeCard.route-card #toggleStepsBtn,
+  body.route-compact #routeCard.route-card .route-main small{
+    display:initial!important;
+  }
+
+  body.route-compact #routeCard.route-card .route-actions{
+    display:grid!important;
+  }
+}
+
+/* Mobil: när panelen auto-minimeras ska den bli liten för ruttkortet. */
+@media (max-width:699px){
+  body.panel-collapsed #appPanel.panel{
+    height:58px!important;
+    min-height:58px!important;
+    max-height:58px!important;
+  }
+}
+
+
+/* =========================
+   V4.1: advanced info toggle + smoother panel animation
+   ========================= */
+
+.advanced-route-btn{
+  width:100%;
+  min-height:42px;
+  margin:8px 0 0;
+  border-radius:16px;
+  font-size:14px;
+  font-weight:850;
+  background:rgba(255,255,255,.72);
+  border:1px solid rgba(120,90,0,.22);
+}
+body.dark .advanced-route-btn{
+  background:rgba(255,255,255,.08);
+  border-color:rgba(255,255,255,.16);
+  color:#f6f7fb;
+}
+.route-warning.advanced-visible{
+  max-height:28vh;
+  overflow:auto;
+}
+
+/* Ny panelanimation:
+   Flytta inte hela panelen när den öppnas. Animera innehållet i stället.
+   Det tar bort hack när display/height växlar mellan öppet och minimerat. */
+#appPanel.panel.panel-opening,
+#appPanel.panel.panel-closing{
+  animation:none!important;
+}
+
+#appPanel.panel.panel-opening .panel-content{
+  animation:panelContentOpenV41 .30s cubic-bezier(.2,.85,.25,1) both!important;
+  transform-origin:top center;
+}
+#appPanel.panel.panel-closing .panel-content{
+  animation:panelContentCloseV41 .28s cubic-bezier(.4,0,.2,1) both!important;
+  transform-origin:top center;
+  pointer-events:none;
+}
+#appPanel.panel.panel-opening .panel-handle-btn{
+  animation:panelHandleSettleV41 .30s ease both!important;
+}
+#appPanel.panel.panel-closing .panel-handle-btn{
+  animation:panelHandleCloseV41 .28s ease both!important;
+}
+
+@keyframes panelContentOpenV41{
+  from{
+    opacity:0;
+    transform:scaleY(.92) translateY(-8px);
+    clip-path:inset(0 0 22% 0 round 16px);
+    filter:blur(2px);
+  }
+  to{
+    opacity:1;
+    transform:scaleY(1) translateY(0);
+    clip-path:inset(0 0 0 0 round 16px);
+    filter:blur(0);
+  }
+}
+@keyframes panelContentCloseV41{
+  from{
+    opacity:1;
+    transform:scaleY(1) translateY(0);
+    clip-path:inset(0 0 0 0 round 16px);
+    filter:blur(0);
+  }
+  to{
+    opacity:0;
+    transform:scaleY(.92) translateY(-8px);
+    clip-path:inset(0 0 26% 0 round 16px);
+    filter:blur(2px);
+  }
+}
+@keyframes panelHandleSettleV41{
+  from{transform:translateY(-3px)}
+  to{transform:translateY(0)}
+}
+@keyframes panelHandleCloseV41{
+  from{transform:translateY(0)}
+  to{transform:translateY(-2px)}
+}
+
+
+/* =========================
+   V4.2: enklare och snabbare sök/favorit-animation
+   ========================= */
+
+/* Slå av de tyngre V4.1-animationerna när de gamla klasserna finns kvar. */
+#appPanel.panel.panel-opening,
+#appPanel.panel.panel-closing{
+  animation:none!important;
+}
+#appPanel.panel.panel-opening .panel-content,
+#appPanel.panel.panel-closing .panel-content,
+#appPanel.panel.panel-opening .panel-handle-btn,
+#appPanel.panel.panel-closing .panel-handle-btn{
+  animation:none!important;
+  filter:none!important;
+  clip-path:none!important;
+  transform:none!important;
+}
+
+/* Ny simpel animation: endast opacity på innehållet.
+   Detta ska kännas mycket mindre hackigt på iPhone/Safari. */
+#appPanel.panel.panel-simple-opening,
+#appPanel.panel.panel-simple-closing{
+  animation:none!important;
+  transform:translateY(0)!important;
+}
+#appPanel.panel.panel-simple-opening .panel-content{
+  animation:panelSimpleInV42 .16s ease-out both!important;
+}
+#appPanel.panel.panel-simple-closing .panel-content{
+  animation:panelSimpleOutV42 .15s ease-in both!important;
+  pointer-events:none;
+}
+@keyframes panelSimpleInV42{
+  from{opacity:0}
+  to{opacity:1}
+}
+@keyframes panelSimpleOutV42{
+  from{opacity:1}
+  to{opacity:0}
+}
