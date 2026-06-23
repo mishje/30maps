@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="30maps">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>30maps - A-Traktor Navigator V3.5.2</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="./style.css?v=35">
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="boot" class="boot">
+    <div class="boot-card">
+      <div class="boot-logo">🚜</div>
+      <strong>30maps</strong>
+      <span>Startar GPS och karta...</span>
+    </div>
+  </div>
+
+  <main id="appPanel" class="panel hidden">
+    <button id="panelHandle" class="panel-handle-btn" aria-label="Öppna eller minimera panel">
+      <span id="panelHandleText" class="panel-handle-text">🔍 30maps</span>
+      <span id="panelHandleChevron" class="panel-handle-chevron">⌃</span>
+    </button>
+
+    <div class="panel-content">
+    <header class="panel-header">
+      <div>
+        <strong>🚜 30maps</strong>
+        <small>A-traktorläge · 30 km/h · Sverige</small>
+      </div>
+      <button id="themeBtn" class="round-btn" aria-label="Byt tema">◐</button>
+    </header>
+
+    <section class="search-section">
+      <label for="destInput">Destination</label>
+      <div class="input-row">
+        <input id="destInput" autocomplete="off" inputmode="search" placeholder="Sök mål eller håll inne på kartan">
+        <button id="clearTextBtn" class="square-btn" aria-label="Rensa sökfält">×</button>
+      </div>
+      <div id="destSuggestions" class="suggestions"></div>
+      <p class="hint">Tips: håll inne på kartan för att välja en plats.</p>
+    </section>
+
+    <section id="startSection" class="search-section start-section hidden">
+      <label for="startInput">Startpunkt</label>
+      <div class="input-row">
+        <input id="startInput" autocomplete="off" inputmode="search" placeholder="Min position">
+        <button id="useGpsStartBtn" class="square-btn" aria-label="Använd min position">📍</button>
+      </div>
+      <div id="startSuggestions" class="suggestions"></div>
+    </section>
+
+    <section class="quick-row">
+      <button id="myLocationBtn">📍 Min position</button>
+      <button id="followBtn">🧭 Följ: på</button>
+      <button id="clearRouteBtn">🗑️ Rensa</button>
+    </section>
+
+    <section class="saved-section">
+      <div class="section-title">
+        <span>⭐ Favoriter</span>
+        <button id="manageFavsBtn">Hantera</button>
+      </div>
+      <div id="favoritesList" class="chip-list"></div>
+
+      <div class="section-title recent-title">
+        <span>🕘 Senaste</span>
+        <button id="clearRecentsBtn">Rensa</button>
+      </div>
+      <div id="recentList" class="chip-list"></div>
+    </section>
+    </div>
+  </main>
+
+  <section id="routeCard" class="route-card hidden">
+    <button id="closeRouteBtn" class="route-close-btn" aria-label="Rensa rutt">×</button>
+    <div class="route-main">
+      <div>
+        <strong id="routeTitle">Rutt</strong>
+        <small id="routeSubtitle">A-traktorväg</small>
+      </div>
+      <span id="routeMeta">-</span>
+    </div>
+    <div id="nextInstruction" class="next-instruction hidden"></div>
+    <div id="routeWarning" class="route-warning hidden"></div>
+    <div class="route-actions">
+      <button id="startNavigationBtn" class="primary-btn">Starta navigation</button>
+      <button id="favoriteDestinationBtn">⭐ Spara mål</button>
+      <button id="toggleStepsBtn">Visa alla steg</button>
+    </div>
+  </section>
+
+  <section id="navTop" class="nav-top hidden">
+    <small id="navDistanceToTurn">Nästa</small>
+    <strong id="navInstruction">Följ rutten</strong>
+    <span id="navRoad"></span>
+  </section>
+
+  <section id="navBottom" class="nav-bottom hidden">
+    <div>
+      <strong id="navRemaining">-</strong>
+      <small id="navDestination">Destination</small>
+    </div>
+    <div class="nav-actions">
+      <button id="navStepsBtn">Steg</button>
+      <button id="exitNavigationBtn">Avsluta</button>
+    </div>
+  </section>
+
+  <section id="stepsSheet" class="steps-sheet hidden">
+    <div class="sheet-handle"></div>
+    <header>
+      <strong>Alla steg</strong>
+      <button id="closeStepsBtn" class="secondary-btn">Stäng</button>
+    </header>
+    <ol id="stepsList"></ol>
+  </section>
+
+  <section id="tapSheet" class="tap-sheet hidden">
+    <div class="sheet-handle"></div>
+    <strong>Vald plats</strong>
+    <code id="tapCoords">-</code>
+    <div class="sheet-actions">
+      <button id="tapNavigateBtn" class="primary-btn">🧭 Navigera hit</button>
+      <button id="tapStartBtn">🏁 Sätt som start</button>
+      <button id="tapFavBtn">⭐ Spara favorit</button>
+      <button id="tapCopyBtn">📋 Kopiera</button>
+      <button id="tapCloseBtn" class="secondary-btn">Stäng</button>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="./app.js?v=35"></script>
+</body>
+</html>

@@ -1,0 +1,564 @@
+*{box-sizing:border-box}
+html,body,#map{height:100%;width:100%;margin:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#eef2f5;color:#111;overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+#map{position:fixed;inset:0;z-index:1}
+.hidden{display:none!important}
+button,input{font:inherit}
+button{border:1px solid rgba(0,0,0,.12);border-radius:15px;min-height:46px;padding:0 13px;background:#f2f4f7;color:#111;font-weight:750;touch-action:manipulation}
+button:active{transform:scale(.985)}
+input{width:100%;border:1px solid #d8dee8;background:#fff;border-radius:16px;min-height:48px;padding:0 14px;font-size:16px;outline:none;box-shadow:0 1px 0 rgba(0,0,0,.04)}
+input:focus{border-color:#2d7dff;box-shadow:0 0 0 4px rgba(45,125,255,.13)}
+
+/* V3.3: Mobilvänligare kartinteraktion.
+   Hindrar iPhone från att markera text när man långtrycker på kartan.
+   Inputs får fortfarande markera text. */
+body,#map,.panel,.route-card,.tap-sheet,.steps-sheet,.nav-top,.nav-bottom,button{
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-touch-callout:none;
+}
+input,textarea{
+  -webkit-user-select:text;
+  user-select:text;
+  -webkit-touch-callout:default;
+}
+
+.panel-handle-btn{
+  width:100%;
+  min-height:42px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  margin:0 0 8px;
+  padding:0 10px;
+  border-radius:16px;
+  background:rgba(242,244,247,.92);
+}
+.panel-grabber{
+  width:42px;
+  height:5px;
+  border-radius:999px;
+  background:#cfd5dd;
+  position:absolute;
+  top:9px;
+  left:50%;
+  transform:translateX(-50%);
+}
+.panel-handle-text{
+  margin-top:7px;
+  font-size:13px;
+  font-weight:850;
+}
+.panel-handle-chevron{
+  margin-top:7px;
+  font-size:14px;
+  opacity:.75;
+}
+.panel-content{
+  transition:opacity .22s ease;
+}
+
+/* Minimerad panel: en liten flärp syns kvar så man kan få tillbaka sök/favoriter. */
+body.panel-collapsed .panel{
+  transform:translateY(calc(-100% + 56px));
+}
+body.panel-collapsed .panel-content{
+  opacity:0;
+  pointer-events:none;
+}
+body.panel-collapsed #panelHandleChevron{
+  transform:rotate(180deg);
+}
+body.panel-collapsed #panelHandleText::after{
+  content:" · dra ner";
+  opacity:.7;
+  font-weight:700;
+}
+body.panel-collapsed .suggestions{
+  display:none!important;
+}
+
+small{color:#667}
+
+.boot{position:fixed;inset:0;z-index:3000;display:grid;place-items:center;background:rgba(255,255,255,.38);backdrop-filter:blur(10px);transition:opacity .45s ease}
+.boot.fade{opacity:0;pointer-events:none}
+.boot-card{background:rgba(255,255,255,.96);padding:18px 22px;border-radius:24px;box-shadow:0 18px 60px rgba(0,0,0,.2);display:flex;flex-direction:column;align-items:center;gap:5px;min-width:210px}
+.boot-logo{font-size:36px}
+
+.panel{position:fixed;z-index:1100;left:12px;right:12px;top:max(12px,env(safe-area-inset-top));background:rgba(255,255,255,.94);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.65);border-radius:24px;padding:12px;box-shadow:0 18px 55px rgba(0,0,0,.24);opacity:1;transform:translateY(0);transition:opacity .35s ease,transform .35s ease}
+.panel.appear{animation:panelIn .45s ease both}
+body.navigating .panel{opacity:0;transform:translateY(-20px);pointer-events:none}
+@keyframes panelIn{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
+
+.panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.panel-header strong{display:block;font-size:16px}
+.panel-header small{display:block;font-size:12px;margin-top:2px}
+.round-btn{width:44px;min-height:44px;border-radius:50%;padding:0}
+.square-btn{width:48px;min-width:48px;padding:0}
+.search-section{position:relative;margin-top:8px}
+.search-section label{display:block;font-size:12px;font-weight:800;color:#59616b;margin:0 0 5px 3px}
+.input-row{display:flex;gap:7px;align-items:center}
+.hint{margin:6px 3px 0;color:#69717c;font-size:12px}
+.suggestions{position:absolute;left:0;right:0;top:75px;z-index:1200;background:#fff;border-radius:18px;box-shadow:0 18px 50px rgba(0,0,0,.24);overflow:hidden;max-height:250px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.suggestion{padding:12px 14px;border-bottom:1px solid #edf0f3;cursor:pointer}
+.suggestion:last-child{border-bottom:0}
+.suggestion strong{display:block;font-size:14px;line-height:1.2}
+.suggestion small{display:block;margin-top:4px;color:#667;font-size:12px;line-height:1.25}
+.suggestion:active{background:#eef5ff}
+.start-section{margin-top:10px}
+.quick-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-top:10px}
+.quick-row button{font-size:13px;padding:0 6px}
+.saved-section{margin-top:9px}
+.section-title{display:flex;align-items:center;justify-content:space-between;color:#4d5560;font-size:12px;font-weight:800;margin:7px 2px}
+.section-title button{min-height:31px;font-size:12px;padding:0 10px}
+.recent-title{margin-top:8px}
+.chip-list{display:flex;gap:7px;overflow-x:auto;padding-bottom:2px;-webkit-overflow-scrolling:touch}
+.chip{border:1px solid #dce2ea;background:#fff;border-radius:999px;padding:8px 12px;white-space:nowrap;font-size:13px;min-height:38px}
+
+.route-card{position:fixed;z-index:1150;left:12px;right:12px;bottom:max(12px,env(safe-area-inset-bottom));background:rgba(255,255,255,.96);backdrop-filter:blur(20px);border-radius:24px;padding:13px;box-shadow:0 18px 55px rgba(0,0,0,.26)}
+body.navigating .route-card{display:none!important}
+.route-main{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.route-main strong{display:block;font-size:17px;line-height:1.25}
+.route-main small{display:block;font-size:12px;margin-top:2px}
+.route-main span{font-size:15px;color:#222;text-align:right;white-space:nowrap;font-weight:800}
+.route-warning{margin-top:9px;background:#fff2c2;color:#5f4400;border-radius:14px;padding:9px;font-size:12px;line-height:1.35}
+.next-instruction{margin-top:9px;background:#eef5ff;color:#0b4aa5;border-radius:14px;padding:9px;font-size:14px;font-weight:700;line-height:1.35}
+.route-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.route-actions .primary-btn{grid-column:1/3}
+.primary-btn{background:#0b7cff;color:#fff}
+.secondary-btn{background:#fff;border:1px solid #dce2ea;color:#111}
+
+.nav-top{position:fixed;z-index:1400;left:12px;right:12px;top:max(12px,env(safe-area-inset-top));background:#118646;color:#fff;border-radius:24px;padding:14px 16px;box-shadow:0 18px 55px rgba(0,0,0,.28)}
+.nav-top small{display:block;color:rgba(255,255,255,.86);font-size:15px;font-weight:800}
+.nav-top strong{display:block;font-size:25px;line-height:1.08;margin-top:3px}
+.nav-top span{display:block;font-size:15px;margin-top:5px;opacity:.94}
+
+.nav-bottom{position:fixed;z-index:1400;left:12px;right:12px;bottom:max(12px,env(safe-area-inset-bottom));background:rgba(255,255,255,.96);backdrop-filter:blur(18px);border-radius:24px;padding:13px;box-shadow:0 18px 55px rgba(0,0,0,.28);display:flex;justify-content:space-between;align-items:center;gap:12px}
+.nav-bottom strong{display:block;font-size:20px}
+.nav-bottom small{display:block;font-size:12px;margin-top:2px}
+.nav-actions{display:flex;gap:8px}
+.nav-actions button{min-height:44px}
+
+.tap-sheet,.steps-sheet{position:fixed;z-index:2100;left:12px;right:12px;bottom:max(12px,env(safe-area-inset-bottom));background:#fff;border-radius:25px;padding:13px;box-shadow:0 22px 70px rgba(0,0,0,.34)}
+.sheet-handle{width:44px;height:5px;background:#d5d9df;border-radius:999px;margin:0 auto 11px}
+.tap-sheet strong{display:block;font-size:16px}
+.tap-sheet code{display:block;margin-top:6px;background:#f4f6f8;border-radius:12px;padding:9px;font-size:14px}
+.sheet-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px}
+.sheet-actions .primary-btn{grid-column:1/3}
+.sheet-actions .secondary-btn{grid-column:1/3}
+
+.steps-sheet{top:auto;max-height:75vh;display:flex;flex-direction:column}
+.steps-sheet header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.steps-sheet header strong{font-size:18px}
+#stepsList{margin:0;padding:0 0 0 25px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#stepsList li{padding:11px 6px;border-bottom:1px solid #edf0f3;font-size:15px;line-height:1.32}
+#stepsList small{display:block;margin-top:3px}
+
+.toast{position:fixed;z-index:4000;left:50%;bottom:calc(max(18px,env(safe-area-inset-bottom)) + 96px);transform:translateX(-50%);background:#111;color:#fff;border-radius:999px;padding:11px 15px;font-size:14px;font-weight:700;box-shadow:0 8px 30px rgba(0,0,0,.32);max-width:88vw;text-align:center}
+
+.user-dot-wrap{position:relative;width:22px;height:22px}
+.user-heading{width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:25px solid rgba(30,136,255,.55);transform-origin:50% 100%;position:absolute;left:2px;top:-22px}
+.user-dot{width:22px;height:22px;background:#1e88ff;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 12px rgba(0,0,0,.35)}
+
+body.dark{background:#090d12;color:#f5f7fb}
+body.dark .panel,body.dark .route-card,body.dark .nav-bottom,body.dark .tap-sheet,body.dark .steps-sheet,body.dark .boot-card{background:rgba(20,24,30,.94);border-color:rgba(255,255,255,.08);color:#f5f7fb}
+body.dark input,body.dark .suggestions,body.dark .suggestion,body.dark .chip{background:#111821;color:#f5f7fb;border-color:#2b3441}
+body.dark button{background:#1b2430;color:#f5f7fb;border-color:rgba(255,255,255,.16)}
+body.dark .primary-btn{background:#0b7cff;color:#fff;border-color:rgba(255,255,255,.28)}
+body.dark .secondary-btn{background:#151d27;color:#f5f7fb;border-color:#2b3441}
+body.dark .panel-header small,body.dark .suggestion small,body.dark .search-section label,body.dark .section-title,body.dark .hint{color:#aab4c0}
+body.dark .route-main span{color:#d8dee8}
+body.dark .next-instruction{background:#10233f;color:#a8caff}
+body.dark .route-warning{background:#392d09;color:#ffe18a}
+body.dark .tap-sheet code{background:#111821;color:#e9eef5}
+body.dark #stepsList li{border-color:#27313d}
+
+@media (min-width:700px){
+  .panel{left:16px;right:auto;width:440px}
+  .route-card,.nav-top,.nav-bottom,.tap-sheet,.steps-sheet{left:16px;right:auto;width:440px}
+}
+
+
+/* V3.3 navigation panel override: i körläge ska sök/favoritpanelen vara helt borta. */
+body.navigating #appPanel.panel{
+  display:none!important;
+  opacity:0!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+
+
+body.dark .panel-handle-btn{background:#1b2430;color:#f5f7fb;border-color:rgba(255,255,255,.16)}
+body.dark .panel-grabber{background:#465160}
+
+
+/* V3.3.1 hotfix:
+   När panelen minimeras ska själva innehållet inte bara bli osynligt,
+   det ska tas ur layouten. Annars kan en tom vit ruta ligga kvar.
+   Animationen på .panel.appear kunde också vinna över transform-regeln. */
+body.panel-collapsed #appPanel.panel{
+  animation:none!important;
+  transform:none!important;
+}
+body.panel-collapsed #appPanel.panel .panel-content{
+  display:none!important;
+}
+body.panel-collapsed #appPanel.panel{
+  padding-bottom:8px;
+}
+body.panel-collapsed #appPanel.panel .panel-handle-btn{
+  margin-bottom:0;
+}
+
+
+/* V3.3.2 hardfix:
+   V3.3.1 kunde fortfarande lämna panelens gamla höjd kvar på vissa webbläsare.
+   Här tvingas minimerad panel att vara endast en liten flärp. */
+body.panel-collapsed #appPanel.panel{
+  height:58px!important;
+  min-height:58px!important;
+  max-height:58px!important;
+  overflow:hidden!important;
+  padding:6px!important;
+  border-radius:20px!important;
+  animation:none!important;
+  transform:none!important;
+}
+body.panel-collapsed #appPanel.panel .panel-content{
+  display:none!important;
+  height:0!important;
+  max-height:0!important;
+  overflow:hidden!important;
+  margin:0!important;
+  padding:0!important;
+}
+body.panel-collapsed #appPanel.panel .panel-handle-btn{
+  height:46px!important;
+  min-height:46px!important;
+  margin:0!important;
+}
+body.panel-collapsed #appPanel.panel .panel-grabber{
+  display:none!important;
+}
+
+/* På större skärmar ska flärpen inte bli en jättestor ruta. */
+@media (min-width:700px){
+  body.panel-collapsed #appPanel.panel{
+    width:320px!important;
+  }
+}
+
+
+/* =========================
+   V3.4 mobile UX refinements
+   ========================= */
+
+/* Dölj fula scrollbars men behåll svep i sidled. */
+.chip-list{
+  scrollbar-width:none!important;
+  -ms-overflow-style:none!important;
+}
+.chip-list::-webkit-scrollbar{
+  width:0!important;
+  height:0!important;
+  display:none!important;
+}
+
+/* Handtaget: texten ska vara visuellt centrerad oavsett pil. */
+.panel-handle-btn{
+  position:relative!important;
+  justify-content:center!important;
+  overflow:hidden!important;
+}
+.panel-handle-text{
+  position:absolute!important;
+  left:50%!important;
+  top:50%!important;
+  transform:translate(-50%,-50%)!important;
+  margin:0!important;
+  white-space:nowrap!important;
+  text-align:center!important;
+}
+.panel-handle-chevron{
+  position:absolute!important;
+  right:18px!important;
+  top:50%!important;
+  transform:translateY(-50%)!important;
+  margin:0!important;
+}
+body.panel-collapsed #panelHandleChevron{
+  transform:translateY(-50%) rotate(180deg)!important;
+}
+body.panel-collapsed #panelHandleText::after{
+  content:""!important;
+}
+
+/* Mjukare öppna/minimera-panel.
+   Vi tvingar minimerad panel till liten flärp, men animerar höjd/padding. */
+#appPanel.panel{
+  overflow:hidden!important;
+  transition:
+    height .28s ease,
+    max-height .28s ease,
+    padding .28s ease,
+    transform .28s ease,
+    opacity .28s ease,
+    border-radius .28s ease!important;
+}
+#appPanel.panel .panel-content{
+  transition:
+    opacity .22s ease,
+    transform .22s ease!important;
+}
+body.panel-collapsed #appPanel.panel{
+  height:58px!important;
+  min-height:58px!important;
+  max-height:58px!important;
+  padding:6px!important;
+  border-radius:20px!important;
+  animation:none!important;
+  transform:none!important;
+}
+body.panel-collapsed #appPanel.panel .panel-content{
+  display:block!important;
+  opacity:0!important;
+  transform:translateY(-8px)!important;
+  pointer-events:none!important;
+  height:0!important;
+  max-height:0!important;
+  margin:0!important;
+  padding:0!important;
+  overflow:hidden!important;
+}
+body.panel-collapsed #appPanel.panel .panel-handle-btn{
+  height:46px!important;
+  min-height:46px!important;
+  margin:0!important;
+}
+body.panel-collapsed #appPanel.panel .panel-grabber{
+  display:none!important;
+}
+
+/* Route card animation. */
+.route-card{
+  position:fixed;
+  transform:translateY(0);
+  opacity:1;
+}
+.route-card.route-enter{
+  animation:routeIn .30s ease both;
+}
+.route-card.route-exit{
+  animation:routeOut .24s ease both;
+}
+@keyframes routeIn{
+  from{opacity:0;transform:translateY(22px) scale(.985)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes routeOut{
+  from{opacity:1;transform:translateY(0) scale(1)}
+  to{opacity:0;transform:translateY(22px) scale(.985)}
+}
+
+/* Kryss uppe höger i route-kortet. */
+.route-close-btn{
+  position:absolute;
+  top:10px;
+  right:10px;
+  width:42px;
+  min-width:42px;
+  height:42px;
+  min-height:42px;
+  padding:0!important;
+  border-radius:50%!important;
+  z-index:2;
+  font-size:24px;
+  line-height:1;
+}
+
+/* Gör plats för krysset. */
+.route-card .route-main{
+  padding-right:48px;
+}
+
+/* Compact mode:
+   När sök/favoritpanelen är öppen ska route-kortet vara litet så rutorna inte överlappar lika illa på iPhone. */
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard.route-card{
+  padding:12px!important;
+  border-radius:22px!important;
+}
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard .route-main strong{
+  font-size:16px!important;
+  max-width:190px!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard .route-main small,
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard #routeWarning,
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard #favoriteDestinationBtn,
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard #toggleStepsBtn{
+  display:none!important;
+}
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard #nextInstruction{
+  margin-top:8px!important;
+  padding:8px 10px!important;
+  font-size:13px!important;
+}
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard .route-actions{
+  display:block!important;
+  margin-top:8px!important;
+}
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard #startNavigationBtn{
+  width:100%!important;
+  min-height:46px!important;
+}
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard .route-close-btn{
+  width:38px!important;
+  min-width:38px!important;
+  height:38px!important;
+  min-height:38px!important;
+}
+
+/* Om panelen är minimerad får route-kortet vara fullt. */
+body.panel-collapsed #routeCard #routeWarning,
+body.panel-collapsed #routeCard #favoriteDestinationBtn,
+body.panel-collapsed #routeCard #toggleStepsBtn{
+  display:block;
+}
+
+/* Extra spacing på mobil så kartattribuering inte hamnar under korten. */
+.leaflet-control-attribution{
+  font-size:11px!important;
+}
+
+/* Mörkt läge för route-krysset och centrerade handtaget. */
+body.dark .route-close-btn{
+  background:#1b2430!important;
+  color:#f5f7fb!important;
+  border-color:rgba(255,255,255,.16)!important;
+}
+
+/* Säkrare knapp-outline även för iOS rendering. */
+button{
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.04);
+}
+
+
+/* =========================
+   V3.5 panel simplification
+   ========================= */
+
+/* Panelen ska inte längre se dragbar ut. Bara tryck på flärpen används. */
+.panel-grabber{
+  display:none!important;
+}
+
+/* Gör handtagsknappen till en tydlig knapp/flärp utan iPhone-dragindikator. */
+.panel-handle-btn{
+  min-height:46px!important;
+  height:46px!important;
+  margin:0 0 8px!important;
+  padding:0 46px!important;
+  cursor:pointer;
+}
+.panel-handle-text{
+  position:absolute!important;
+  left:50%!important;
+  top:50%!important;
+  transform:translate(-50%,-50%)!important;
+  margin:0!important;
+  white-space:nowrap!important;
+  text-align:center!important;
+}
+.panel-handle-chevron{
+  position:absolute!important;
+  right:18px!important;
+  top:50%!important;
+  transform:translateY(-50%)!important;
+  margin:0!important;
+}
+body.panel-collapsed #panelHandleChevron{
+  transform:translateY(-50%) rotate(180deg)!important;
+}
+body.panel-collapsed #panelHandleText::after{
+  content:""!important;
+}
+
+/* Mjukare omvänd animation när sök/favoritpanelen minimeras.
+   Ingen display:none direkt på innehållet; det krymper/fadar ihop. */
+#appPanel.panel{
+  overflow:hidden!important;
+  transition:
+    height .30s ease,
+    min-height .30s ease,
+    max-height .30s ease,
+    padding .30s ease,
+    border-radius .30s ease,
+    opacity .30s ease,
+    transform .30s ease!important;
+}
+#appPanel.panel .panel-content{
+  transform-origin:top center;
+  transition:
+    opacity .22s ease,
+    transform .26s ease,
+    max-height .30s ease!important;
+}
+body:not(.panel-collapsed) #appPanel.panel{
+  height:auto!important;
+  max-height:80vh!important;
+}
+body:not(.panel-collapsed) #appPanel.panel .panel-content{
+  opacity:1!important;
+  transform:translateY(0) scaleY(1)!important;
+  max-height:720px!important;
+}
+body.panel-collapsed #appPanel.panel{
+  height:58px!important;
+  min-height:58px!important;
+  max-height:58px!important;
+  overflow:hidden!important;
+  padding:6px!important;
+  border-radius:20px!important;
+  animation:none!important;
+  transform:none!important;
+}
+body.panel-collapsed #appPanel.panel .panel-content{
+  opacity:0!important;
+  transform:translateY(-8px) scaleY(.96)!important;
+  pointer-events:none!important;
+  max-height:0!important;
+  height:0!important;
+  overflow:hidden!important;
+  margin:0!important;
+  padding:0!important;
+}
+body.panel-collapsed #appPanel.panel .panel-handle-btn{
+  height:46px!important;
+  min-height:46px!important;
+  margin:0!important;
+}
+
+/* Route-kortets animation behålls och förstärks lite. */
+#routeCard.route-card.route-enter{
+  animation:routeInV35 .30s ease both!important;
+}
+#routeCard.route-card.route-exit{
+  animation:routeOutV35 .24s ease both!important;
+}
+@keyframes routeInV35{
+  from{opacity:0;transform:translateY(24px) scale(.985)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes routeOutV35{
+  from{opacity:1;transform:translateY(0) scale(1)}
+  to{opacity:0;transform:translateY(24px) scale(.985)}
+}
+
+/* När en destination valts via sök/favorit/senaste minimeras övre panelen,
+   så nedre ruttpanelen får plats och kan visas fullt. */
+body.panel-collapsed #routeCard.route-card{
+  max-height:52vh;
+}

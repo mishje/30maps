@@ -1,4 +1,4 @@
-# 30maps A-Traktor Navigator V3.4
+# 30maps A-Traktor Navigator V3.5
 
 Mobilvänlig GitHub Pages/PWA-version optimerad för iPhone 13.
 
@@ -89,3 +89,17 @@ Hardfix: minimerad sök-/favoritpanel tvingas nu till 58px höjd så den inte l�
 - Route-kortet har kryss uppe till höger som rensar rutten.
 - Route-kortet blir kompakt när sök-/favoritpanelen är öppen och fullt när panelen är minimerad.
 - Långtryck på kartan tvingar inte längre bort sök-/favoritpanelen.
+
+
+## V3.5
+
+- Sök/favoritpanelen minimeras automatiskt när destination väljs via sökresultat, favorit eller senaste plats.
+- Långtryck på kartan lämnas orört.
+- Drag-funktionen för sök/favoritpanelen är borttagen.
+- Den lilla dragindikatorn/plutten är borttagen.
+- Panelen styrs bara med tryck på flärpen.
+- Minimeringsanimationen för sök/favoritpanelen är mjukare och matchar öppningskänslan bättre.
+- Ruttkortet behåller pop/slide-in när det först öppnas och slide/fade-out när det stängs.
+- Ruttkortet spelar inte om öppningsanimationen när ny destination väljs medan kortet redan är öppet.
+- Cache-busting uppdaterad till `style.css?v=35` och `app.js?v=35`.
+- Service worker-cache uppdaterad till `30maps-v35`.
