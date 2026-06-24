@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "5.8";
+  const VERSION = "5.9";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
@@ -16,6 +16,12 @@
   const TURN_LOCK_CLOSE_AFTER_METERS = 10;
   const DRIVE_START_ZOOM_MOBILE = 17;
   const DRIVE_START_ZOOM_DESKTOP = 16;
+  const CAMERA_LOOKAHEAD_MIN_M = 140;
+  const CAMERA_LOOKAHEAD_NORMAL_M = 330;
+  const CAMERA_LOOKAHEAD_MAX_M = 650;
+  const CAMERA_LOOKAHEAD_TURN_MARGIN_M = 110;
+  const CAMERA_LEAD_MIN_PX = 76;
+  const CAMERA_LEAD_MAX_PX = 168;
 
   const el = {
     boot: document.getElementById("boot"),
@@ -292,6 +298,10 @@
     return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
   }
 
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
   function storageGet(key, fallback) {
     try {
       const value = JSON.parse(localStorage.getItem(key));
@@ -430,7 +440,113 @@
     });
   }
 
-  function getFollowTargetCenter(lat, lon, zoom = map.getZoom()) {
+  function routePointAtDistanceAlong(distanceAlong) {
+    const route = state.route;
+    const coords = route?.coords || [];
+    if (!coords.length) return null;
+    if (coords.length === 1) return { lat: coords[0][0], lon: coords[0][1] };
+
+    const target = clamp(distanceAlong || 0, 0, route.distance || Infinity);
+    const cumulative = route.cumulative || [];
+
+    for (let i = 0; i < coords.length - 1; i++) {
+      const a = coords[i];
+      const b = coords[i + 1];
+      const aDist = cumulative[i] || 0;
+      const bDist = cumulative[i + 1] ?? (aDist + haversine({ lat: a[0], lon: a[1] }, { lat: b[0], lon: b[1] }));
+
+      if (target <= bDist) {
+        const segLen = Math.max(1, bDist - aDist);
+        const t = clamp((target - aDist) / segLen, 0, 1);
+        return {
+          lat: a[0] + (b[0] - a[0]) * t,
+          lon: a[1] + (b[1] - a[1]) * t
+        };
+      }
+    }
+
+    const last = coords[coords.length - 1];
+    return { lat: last[0], lon: last[1] };
+  }
+
+  function nextCameraInstructionDistance(distanceAlong) {
+    const steps = state.route?.instructions || [];
+    if (!steps.length) return Infinity;
+
+    const d = Math.max(0, distanceAlong || 0);
+    const turnStep = steps.find(s => isTurnLikeInstruction(s) && (s.distanceFromStart || 0) > d + 15);
+    const step = turnStep || steps.find(s => (s.distanceFromStart || 0) > d + 15);
+    return step ? Math.max(0, (step.distanceFromStart || 0) - d) : Infinity;
+  }
+
+  function cameraLookaheadMeters(distanceAlong) {
+    const toTurn = nextCameraInstructionDistance(distanceAlong);
+
+    // Viktigt: om nästa sväng är flera km bort ska vi inte zooma/kika flera km fram.
+    if (!Number.isFinite(toTurn) || toTurn > 1200) return CAMERA_LOOKAHEAD_NORMAL_M;
+
+    // När en sväng börjar närma sig får kameran kika lite längre,
+    // men alltid med maxgräns så körläget inte blir för utzoomat.
+    if (toTurn > 520) {
+      return clamp(toTurn + CAMERA_LOOKAHEAD_TURN_MARGIN_M, CAMERA_LOOKAHEAD_NORMAL_M, CAMERA_LOOKAHEAD_MAX_M);
+    }
+
+    if (toTurn > 135) {
+      return clamp(toTurn + CAMERA_LOOKAHEAD_TURN_MARGIN_M, 260, CAMERA_LOOKAHEAD_MAX_M);
+    }
+
+    // Nära sväng: håll vyn mer exakt igen så man inte tappar känslan i korsningen.
+    if (toTurn > 55) return clamp(toTurn + 70, CAMERA_LOOKAHEAD_MIN_M, 285);
+
+    return CAMERA_LOOKAHEAD_MIN_M;
+  }
+
+  function getCameraRouteProgress(lat, lon) {
+    if (!state.route || !state.route.coords || state.route.coords.length < 2) return null;
+    try {
+      return getRouteProgress({ lat, lon }, state.route.coords, state.route.cumulative || []);
+    } catch {
+      return null;
+    }
+  }
+
+  function getCameraAheadVector(lat, lon, zoom, progress) {
+    const projected = map.project([lat, lon], zoom);
+
+    if (progress && progress.offRouteDistance < OFF_ROUTE_METERS * 2.5) {
+      const lookahead = cameraLookaheadMeters(progress.distanceAlong);
+      const aheadPoint = routePointAtDistanceAlong(progress.distanceAlong + lookahead);
+      if (aheadPoint) {
+        const aheadProjected = map.project([aheadPoint.lat, aheadPoint.lon], zoom);
+        const vx = aheadProjected.x - projected.x;
+        const vy = aheadProjected.y - projected.y;
+        const len = Math.hypot(vx, vy);
+        if (len > 4) {
+          return {
+            x: vx / len,
+            y: vy / len,
+            meters: lookahead,
+            toTurn: nextCameraInstructionDistance(progress.distanceAlong)
+          };
+        }
+      }
+    }
+
+    // Fallback om ruttriktning saknas: använd GPS-heading om den finns.
+    if (typeof state.userHeading === "number" && Number.isFinite(state.userHeading)) {
+      const rad = state.userHeading * Math.PI / 180;
+      return {
+        x: Math.sin(rad),
+        y: -Math.cos(rad),
+        meters: CAMERA_LOOKAHEAD_NORMAL_M,
+        toTurn: Infinity
+      };
+    }
+
+    return null;
+  }
+
+  function getFollowTargetCenter(lat, lon, zoom = map.getZoom(), options = {}) {
     if (!state.navigating || isDesktopLayout()) return L.latLng(lat, lon);
 
     const size = map.getSize();
@@ -440,10 +556,33 @@
     const topLimit = navTopRect ? navTopRect.bottom + 95 : size.y * 0.22;
     const bottomTop = navBottomRect ? navBottomRect.top : size.y - 105;
 
-    // Mobil körläge: GPS-markören ska ligga ovanför nedersta rutan,
-    // men tillräckligt långt ner för att visa mycket väg framför fordonet.
-    const desiredX = size.x * 0.5;
-    const desiredY = Math.max(topLimit, Math.min(bottomTop - 86, size.y * 0.72));
+    // Grundläge: markören ligger ovanför nedersta navigationsrutan.
+    let desiredX = size.x * 0.5;
+    let desiredY = Math.max(topLimit, Math.min(bottomTop - 86, size.y * 0.72));
+
+    // V5.9: smart framför-vy utan kartrotation.
+    // Markören flyttas "bakom" färdriktningen så mer av rutten framför syns,
+    // oavsett om man kör norrut, söderut, österut eller västerut.
+    const progress = options.progress || getCameraRouteProgress(lat, lon);
+    const ahead = getCameraAheadVector(lat, lon, zoom, progress);
+
+    if (ahead) {
+      const nearTurn = Number.isFinite(ahead.toTurn) && ahead.toTurn <= 650;
+      const veryNearTurn = Number.isFinite(ahead.toTurn) && ahead.toTurn <= 90;
+
+      let leadPx = Math.min(CAMERA_LEAD_MAX_PX, size.x * 0.31, size.y * 0.23);
+      if (!nearTurn) leadPx *= 0.84;
+      if (veryNearTurn) leadPx *= 0.78;
+      leadPx = clamp(leadPx, CAMERA_LEAD_MIN_PX, CAMERA_LEAD_MAX_PX);
+
+      const minX = Math.max(54, size.x * 0.18);
+      const maxX = Math.min(size.x - 54, size.x * 0.82);
+      const minY = topLimit + 16;
+      const maxY = bottomTop - 74;
+
+      desiredX = clamp(desiredX - ahead.x * leadPx, minX, maxX);
+      desiredY = clamp(desiredY - ahead.y * leadPx, minY, maxY);
+    }
 
     const projected = map.project([lat, lon], zoom);
     const desiredCenterPoint = L.point(
@@ -457,7 +596,7 @@
     if (!state.follow) return;
 
     const zoom = options.zoom ?? map.getZoom();
-    const targetCenter = getFollowTargetCenter(lat, lon, zoom);
+    const targetCenter = getFollowTargetCenter(lat, lon, zoom, options);
 
     if (options.setView) {
       map.setView(targetCenter, zoom, { animate: true });
@@ -475,8 +614,8 @@
     const minZoom = isDesktopLayout() ? DRIVE_START_ZOOM_DESKTOP : DRIVE_START_ZOOM_MOBILE;
     const targetZoom = Math.max(map.getZoom(), minZoom);
 
-    // Viktigt: räkna ut körläges-centrum med målzoomen och gör zoom+pan samtidigt.
-    // Då hamnar GPS-markören rätt även om kartan var mycket utzoomad innan.
+    // Räkna ut körläges-centrum med målzoomen och gör zoom+pan samtidigt.
+    // V5.9 använder även smart framför-vy så man ser mer åt färdriktningen.
     map.invalidateSize();
     followUserPosition(pos.lat, pos.lon, { zoom: targetZoom, setView: true });
 
@@ -2629,7 +2768,7 @@
     document.body.classList.remove("demo-active");
 
     if (el.betaBadge) {
-      el.betaBadge.textContent = "BETA · v5.8";
+      el.betaBadge.textContent = "BETA · v5.9";
       el.betaBadge.title = "Klicka för att dölja. Håll inne för testresa.";
     }
 
