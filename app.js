@@ -1,12 +1,21 @@
 (() => {
   "use strict";
 
-  const VERSION = "5";
+  const VERSION = "5.8";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
   const OFF_ROUTE_METERS = 80;
   const REROUTE_COOLDOWN_MS = 10000;
+  const ARRIVAL_METERS = 28;
+  const TURN_HOLD_AFTER_METERS = 30;
+  const CLOSE_NEXT_TURN_METERS = 115;
+  const REROUTE_STATUS_MS = 1200;
+  const TURN_LOCK_BEFORE_METERS = 50;
+  const TURN_LOCK_AFTER_METERS = 60;
+  const TURN_LOCK_CLOSE_AFTER_METERS = 10;
+  const DRIVE_START_ZOOM_MOBILE = 17;
+  const DRIVE_START_ZOOM_DESKTOP = 16;
 
   const el = {
     boot: document.getElementById("boot"),
@@ -60,7 +69,8 @@
     tapCopyBtn: document.getElementById("tapCopyBtn"),
     tapCloseBtn: document.getElementById("tapCloseBtn"),
     toast: document.getElementById("toast"),
-    betaBadge: document.getElementById("betaBadge")
+    betaBadge: document.getElementById("betaBadge"),
+    resumeFollowBtn: document.getElementById("resumeFollowBtn")
   };
 
   const state = {
@@ -93,7 +103,36 @@
     advancedRouteShown: false,
     offRouteHits: 0,
     lastNavStepKey: "",
-    lastRemainingRouteIndex: -1
+    lastRemainingRouteIndex: -1,
+    demoActive: false,
+    demoTimer: null,
+    demoLongPressTimer: null,
+    demoLongPressFired: false,
+    demoWrongAnnounced: false,
+    demoReturnAnnounced: false,
+    demoWrongPlan: null,
+    demoPath: [],
+    demoIndex: 0,
+    demoRerouting: false,
+    demoRerouted: false,
+    realUserPos: null,
+    realUserAccuracy: null,
+    realUserHeading: null,
+    originalRoute: null,
+    originalStart: null,
+    beforeTapPickView: null,
+    navDisplayedStepKey: "",
+    navVisibleInstructionSig: "",
+    navStepAnimationTimer: null,
+    arrivedHandled: false,
+    drivenRouteLayer: null,
+    navMaxDistanceAlong: 0,
+    navRerouteStatusUntil: 0,
+    turnLock: null,
+    turnLockReleasedKey: "",
+    navStepAnimationCleanupTimer: null,
+    navStepAnimationSeq: 0,
+    resumeFollowHideTimer: null
   };
 
   const map = L.map("map", {
@@ -119,6 +158,45 @@
     return window.matchMedia && window.matchMedia("(min-width: 700px)").matches;
   }
 
+  function animateUiCard(node, direction = "in") {
+    if (!node) return;
+    clearTimeout(node._uiCardTimer);
+    node.classList.remove("ui-card-in", "ui-card-out", "route-enter", "route-exit", "panel-opening", "panel-closing", "panel-simple-opening", "panel-simple-closing");
+    void node.offsetWidth;
+    node.classList.add(direction === "out" ? "ui-card-out" : "ui-card-in");
+    node._uiCardTimer = window.setTimeout(() => {
+      node.classList.remove("ui-card-in", "ui-card-out");
+    }, 360);
+  }
+
+  function showUiCard(node) {
+    if (!node) return;
+    const wasHidden = node.classList.contains("hidden");
+    node.classList.remove("hidden");
+    if (wasHidden) animateUiCard(node, "in");
+  }
+
+  function hideUiCard(node, afterHide = null, animated = true) {
+    if (!node) {
+      if (afterHide) afterHide();
+      return;
+    }
+    clearTimeout(node._uiCardTimer);
+    if (!animated || node.classList.contains("hidden")) {
+      node.classList.add("hidden");
+      node.classList.remove("ui-card-in", "ui-card-out");
+      if (afterHide) afterHide();
+      return;
+    }
+
+    animateUiCard(node, "out");
+    node._uiCardTimer = window.setTimeout(() => {
+      node.classList.add("hidden");
+      node.classList.remove("ui-card-in", "ui-card-out");
+      if (afterHide) afterHide();
+    }, 245);
+  }
+
   function autoMinimizeForDestination() {
     // Mobil: minimera alltid sök/favorit när mål valts så ruttkortet får plats.
     // Dator/större skärm: låt panelerna vara öppna, men manuell minimering fungerar.
@@ -133,9 +211,15 @@
     if (state.navigating) return;
     if (collapsed && isTypingInInput() && !options.force) return;
 
+    const wasCollapsed = state.panelCollapsed;
     state.panelCollapsed = Boolean(collapsed);
     clearTimeout(state.panelAnimationTimer);
     el.panel.classList.remove("panel-opening", "panel-closing", "panel-simple-opening", "panel-simple-closing");
+
+    if (wasCollapsed !== state.panelCollapsed) {
+      animateUiCard(el.panel, state.panelCollapsed ? "out" : "in");
+    }
+
     document.body.classList.toggle("panel-collapsed", state.panelCollapsed);
 
     if (el.panelHandleText) {
@@ -157,7 +241,7 @@
   function showApp() {
     el.boot.classList.add("fade");
     setTimeout(() => el.boot.classList.add("hidden"), 480);
-    el.panel.classList.remove("hidden");
+    showUiCard(el.panel);
     setPanelCollapsed(false, { force: true });
     setTimeout(() => map.invalidateSize(), 140);
   }
@@ -335,9 +419,144 @@
     });
   }
 
+  function makePinIcon(kind) {
+    const label = kind === "start" ? "S" : kind === "preview" ? "•" : "M";
+    return L.divIcon({
+      className: "",
+      html: `<div class="map-pin map-pin-${kind}"><span>${label}</span></div>`,
+      iconSize: [34, 42],
+      iconAnchor: [17, 38],
+      popupAnchor: [0, -38]
+    });
+  }
+
+  function getFollowTargetCenter(lat, lon, zoom = map.getZoom()) {
+    if (!state.navigating || isDesktopLayout()) return L.latLng(lat, lon);
+
+    const size = map.getSize();
+    const navTopRect = el.navTop && !el.navTop.classList.contains("hidden") ? el.navTop.getBoundingClientRect() : null;
+    const navBottomRect = el.navBottom && !el.navBottom.classList.contains("hidden") ? el.navBottom.getBoundingClientRect() : null;
+
+    const topLimit = navTopRect ? navTopRect.bottom + 95 : size.y * 0.22;
+    const bottomTop = navBottomRect ? navBottomRect.top : size.y - 105;
+
+    // Mobil körläge: GPS-markören ska ligga ovanför nedersta rutan,
+    // men tillräckligt långt ner för att visa mycket väg framför fordonet.
+    const desiredX = size.x * 0.5;
+    const desiredY = Math.max(topLimit, Math.min(bottomTop - 86, size.y * 0.72));
+
+    const projected = map.project([lat, lon], zoom);
+    const desiredCenterPoint = L.point(
+      projected.x + size.x / 2 - desiredX,
+      projected.y + size.y / 2 - desiredY
+    );
+    return map.unproject(desiredCenterPoint, zoom);
+  }
+
+  function followUserPosition(lat, lon, options = {}) {
+    if (!state.follow) return;
+
+    const zoom = options.zoom ?? map.getZoom();
+    const targetCenter = getFollowTargetCenter(lat, lon, zoom);
+
+    if (options.setView) {
+      map.setView(targetCenter, zoom, { animate: true });
+      return;
+    }
+
+    map.panTo(targetCenter, { animate: true, duration: options.duration ?? 0.38 });
+  }
+
+
+  function enterDrivingView() {
+    const pos = state.userPos || getStartForRoute();
+    if (!pos) return;
+
+    const minZoom = isDesktopLayout() ? DRIVE_START_ZOOM_DESKTOP : DRIVE_START_ZOOM_MOBILE;
+    const targetZoom = Math.max(map.getZoom(), minZoom);
+
+    // Viktigt: räkna ut körläges-centrum med målzoomen och gör zoom+pan samtidigt.
+    // Då hamnar GPS-markören rätt även om kartan var mycket utzoomad innan.
+    map.invalidateSize();
+    followUserPosition(pos.lat, pos.lon, { zoom: targetZoom, setView: true });
+
+    const settleFollow = () => {
+      if (state.follow) followUserPosition(pos.lat, pos.lon, { duration: 0.22 });
+    };
+    map.once("moveend", settleFollow);
+    window.setTimeout(settleFollow, 360);
+  }
+
+  function cloneRoute(route) {
+    if (!route) return null;
+    return {
+      ...route,
+      coords: (route.coords || []).map(c => [c[0], c[1]]),
+      cumulative: (route.cumulative || []).slice(),
+      instructions: (route.instructions || []).map(s => ({ ...s, point: s.point ? [s.point[0], s.point[1]] : s.point }))
+    };
+  }
+
+  function clonePlace(place) {
+    return place ? { ...place } : null;
+  }
+
+  function updateResumeFollowButton(options = {}) {
+    if (!el.resumeFollowBtn) return;
+    const shouldShow = state.navigating && !state.follow && !state.arrivedHandled;
+    clearTimeout(state.resumeFollowHideTimer);
+
+    if (shouldShow) {
+      el.resumeFollowBtn.classList.remove("hidden", "resume-follow-hiding");
+      return;
+    }
+
+    if (options.delayHide && !el.resumeFollowBtn.classList.contains("hidden")) {
+      el.resumeFollowBtn.classList.add("resume-follow-hiding");
+      state.resumeFollowHideTimer = window.setTimeout(() => {
+        el.resumeFollowBtn.classList.add("hidden");
+        el.resumeFollowBtn.classList.remove("resume-follow-hiding");
+      }, 220);
+      return;
+    }
+
+    el.resumeFollowBtn.classList.add("hidden");
+    el.resumeFollowBtn.classList.remove("resume-follow-hiding");
+  }
+
+  function setFollowMode(on, showToast = true, options = {}) {
+    state.follow = Boolean(on);
+    el.followBtn.textContent = state.follow ? "🧭 Följ: på" : "🧭 Följ: av";
+    updateResumeFollowButton({ delayHide: options.delayResumeHide });
+
+    if (state.follow && state.userPos) {
+      enterDrivingView();
+    }
+
+    if (showToast) toast(state.follow ? "Följläge på" : "Följläge av");
+  }
+
+  function showNavStatus(key, distanceText, instructionText, roadText = "", durationMs = 0) {
+    if (!state.navigating) return;
+    if (durationMs) state.navRerouteStatusUntil = Date.now() + durationMs;
+    setNavInstructionContent(key, distanceText, instructionText, roadText);
+  }
+
   function updateUserPosition(pos) {
+    const isDemo = Boolean(pos.__demo);
     const lat = pos.coords.latitude;
     const lon = pos.coords.longitude;
+
+    // Under testläge ska riktig GPS sparas i bakgrunden men inte flytta kartmarkören.
+    if (!isDemo) {
+      state.realUserPos = { lat, lon };
+      state.realUserAccuracy = pos.coords.accuracy || null;
+      if (typeof pos.coords.heading === "number" && !Number.isNaN(pos.coords.heading)) {
+        state.realUserHeading = pos.coords.heading;
+      }
+      if (state.demoActive) return;
+    }
+
     state.userPos = { lat, lon };
     state.userAccuracy = pos.coords.accuracy || null;
 
@@ -362,7 +581,7 @@
       state.userMarker.setIcon(makeUserIcon());
       state.accuracyCircle.setLatLng([lat, lon]);
       state.accuracyCircle.setRadius(state.userAccuracy || 30);
-      if (state.follow) map.panTo([lat, lon], { animate: true, duration: 0.55 });
+      followUserPosition(lat, lon);
     }
 
     if (state.start.mode === "gps") {
@@ -411,24 +630,28 @@
 
   function showTapPreviewMarker(lat, lon) {
     clearTapPreviewMarker();
-    state.tapPreviewMarker = L.marker([lat, lon]).addTo(map).bindPopup("Vald plats");
+    state.tapPreviewMarker = L.marker([lat, lon], { icon: makePinIcon("preview") }).addTo(map).bindPopup("Vald plats");
   }
 
   function placeMarker(kind, place) {
     const latlng = [place.lat, place.lon];
     if (kind === "dest") {
       if (state.destMarker) map.removeLayer(state.destMarker);
-      state.destMarker = L.marker(latlng).addTo(map).bindPopup("Destination");
+      clearTapPreviewMarker();
+      state.destMarker = L.marker(latlng, { icon: makePinIcon("dest") }).addTo(map).bindPopup("Destination");
     } else {
       if (state.startMarker) map.removeLayer(state.startMarker);
-    if (state.tapPreviewMarker) map.removeLayer(state.tapPreviewMarker);
+      clearTapPreviewMarker();
       if (state.start.mode !== "gps") {
-        state.startMarker = L.marker(latlng).addTo(map).bindPopup("Startpunkt");
+        state.startMarker = L.marker(latlng, { icon: makePinIcon("start") }).addTo(map).bindPopup("Startpunkt");
       }
     }
   }
 
   function setDestination(place, routeNow = true) {
+    state.originalRoute = null;
+    state.originalStart = null;
+    state.arrivedHandled = false;
     state.destination = {
       lat: Number(place.lat),
       lon: Number(place.lon),
@@ -444,7 +667,7 @@
 
     el.startSection.classList.remove("hidden");
     el.destSuggestions.innerHTML = "";
-    el.tapSheet.classList.add("hidden");
+    hideUiCard(el.tapSheet);
     clearTapPreviewMarker();
     placeMarker("dest", state.destination);
     addRecent(state.destination);
@@ -472,10 +695,16 @@
       el.startInput.value = fmtCoord(state.start.lat, state.start.lon);
     }
     el.startSuggestions.innerHTML = "";
-    el.tapSheet.classList.add("hidden");
-    clearTapPreviewMarker();
+    hideUiCard(el.tapSheet);
     placeMarker("start", state.start);
     toast("Startpunkt vald");
+
+    if (!state.destination && state.beforeTapPickView) {
+      const v = state.beforeTapPickView;
+      map.setView(v.center, v.zoom, { animate: true });
+      state.beforeTapPickView = null;
+    }
+
     if (state.destination) calculateRoute();
   }
 
@@ -495,15 +724,16 @@
 
   function showRouteCard() {
     state.routeCardVisible = true;
-    el.routeCard.classList.remove("hidden", "route-enter", "route-exit");
+    el.routeCard.classList.remove("route-enter", "route-exit");
+    showUiCard(el.routeCard);
     setRouteCompactMode();
   }
 
   function hideRouteCard(animated = true) {
     state.routeCardVisible = false;
     document.body.classList.remove("route-compact");
-    el.routeCard.classList.add("hidden");
     el.routeCard.classList.remove("route-enter", "route-exit");
+    hideUiCard(el.routeCard, null, animated);
     if (typeof setAdvancedRouteVisible === "function") setAdvancedRouteVisible(false);
   }
 
@@ -532,6 +762,9 @@
       try {
         result = await getSmartAtraktorRoute(start, dest);
         state.routeUsedFallback = false;
+    state.turnLock = null;
+    state.turnLockReleasedKey = "";
+    state.navMaxDistanceAlong = 0;
       } catch (err) {
         console.warn("Smart Valhalla routing failed, using OSRM fallback", err);
       }
@@ -553,6 +786,17 @@
 
       const route = result.route;
       state.route = route;
+      state.arrivedHandled = false;
+      state.navMaxDistanceAlong = 0;
+      state.turnLock = null;
+      state.turnLockReleasedKey = "";
+      state.lastRemainingRouteIndex = -1;
+      clearDrivenRoute();
+
+      if (!options.reroute || !state.originalRoute) {
+        state.originalRoute = cloneRoute(route);
+        state.originalStart = clonePlace(start);
+      }
 
       // Avancerad jämförelse:
       // Spara blå bilrutt, men visa den inte förrän användaren öppnar avancerad info.
@@ -985,6 +1229,7 @@
 
   function drawCarRoute(coords) {
     if (state.carRouteLayer) map.removeLayer(state.carRouteLayer);
+    if (state.drivenRouteLayer) map.removeLayer(state.drivenRouteLayer);
     if (!coords || !coords.length) return;
 
     state.carRouteLayer = L.polyline(coords, {
@@ -1057,6 +1302,40 @@
   }
 
 
+
+  function clearDrivenRoute() {
+    if (state.drivenRouteLayer) {
+      map.removeLayer(state.drivenRouteLayer);
+      state.drivenRouteLayer = null;
+    }
+  }
+
+  function drawDrivenRoute(coords) {
+    clearDrivenRoute();
+    if (!coords || coords.length < 2) return;
+
+    state.drivenRouteLayer = L.polyline(coords, {
+      color: "#6b7280",
+      weight: 5,
+      opacity: 0.48,
+      lineCap: "round",
+      lineJoin: "round"
+    }).addTo(map);
+
+    if (state.drivenRouteLayer.bringToBack) state.drivenRouteLayer.bringToBack();
+    if (state.routeShadowLayer) state.routeShadowLayer.bringToFront();
+    if (state.routeLayer) state.routeLayer.bringToFront();
+  }
+
+  function getDrivenRouteCoords(progress) {
+    if (!state.route || !state.route.coords || !state.route.coords.length) return [];
+    const coords = state.route.coords;
+    const endIndex = Math.max(0, Math.min(progress.index || 0, coords.length - 1));
+    const driven = coords.slice(0, endIndex + 1);
+    if (progress.point) driven.push(progress.point);
+    return driven.length >= 2 ? driven : [];
+  }
+
   function getRemainingRouteCoords(progress) {
     if (!state.route || !state.route.coords || !state.route.coords.length) return [];
     const coords = state.route.coords;
@@ -1082,25 +1361,246 @@
     if (!shouldUpdate) return;
     state.lastRemainingRouteIndex = idx;
 
+    const drivenCoords = getDrivenRouteCoords(progress);
+    if (drivenCoords.length >= 2) drawDrivenRoute(drivenCoords);
+
     const remainingCoords = getRemainingRouteCoords(progress);
     if (remainingCoords.length >= 2) drawRoute(remainingCoords);
   }
 
   function restoreFullRouteLine() {
     state.lastRemainingRouteIndex = -1;
+    clearDrivenRoute();
     if (state.route && state.route.coords && state.route.coords.length) {
       drawRoute(state.route.coords);
     }
   }
 
-  function animateNavStepChange(stepKey) {
-    if (!state.navigating || !stepKey || state.lastNavStepKey === stepKey) return;
-    state.lastNavStepKey = stepKey;
+  function showOriginalRouteAfterArrival() {
+    const original = state.originalRoute || state.route;
+    if (!original || !original.coords || !original.coords.length) return;
 
-    el.navTop.classList.remove("nav-step-change");
+    state.route = cloneRoute(original);
+    state.lastRemainingRouteIndex = -1;
+    clearDrivenRoute();
+    drawRoute(state.route.coords);
+    updateStepsUI();
+
+    const km = ((state.route.distance || 0) / 1000).toFixed(1);
+    el.routeTitle.textContent = shortName(state.destination?.label || "Destination");
+    el.routeSubtitle.textContent = "Ursprunglig rutt";
+    el.routeMeta.textContent = `${km} km · ${etaFromMeters(state.route.distance || 0)}`;
+
+    const start = state.originalStart || getStartForRoute() || {
+      lat: state.route.coords[0][0],
+      lon: state.route.coords[0][1],
+      label: "Start"
+    };
+    if (state.destination) {
+      fitRoute(start, state.destination, state.route.coords);
+      window.setTimeout(() => fitRoute(start, state.destination, state.route.coords), 90);
+    }
+  }
+
+  function handleDestinationReached() {
+    if (state.arrivedHandled) return;
+    state.arrivedHandled = true;
+    state.navigating = false;
+    state.offRouteHits = 0;
+    state.lastNavStepKey = "";
+    state.navDisplayedStepKey = "";
+    state.navVisibleInstructionSig = "";
+    state.turnLock = null;
+    state.turnLockReleasedKey = "";
+    document.body.classList.remove("navigating");
+    updateResumeFollowButton();
+    el.navTop.classList.add("hidden");
+    el.navBottom.classList.add("hidden");
+    showRouteCard();
+    showOriginalRouteAfterArrival();
+    setRouteCompactMode();
+    toast("Du är framme");
+  }
+
+  function setNavInstructionContent(stepKey, distanceText, mainText, roadText) {
+    if (!state.navigating) return;
+
+    stepKey = String(stepKey || "nav");
+    const cleanRoadText = roadText || "";
+    const contentSig = `${mainText}|||${cleanRoadText}`;
+    const sameStep = state.navDisplayedStepKey === stepKey;
+    const sameVisibleInstruction = state.navVisibleInstructionSig === contentSig;
+
+    state.navStepAnimationSeq = (state.navStepAnimationSeq || 0) + 1;
+    const seq = state.navStepAnimationSeq;
+    clearTimeout(state.navStepAnimationTimer);
+    clearTimeout(state.navStepAnimationCleanupTimer);
+
+    const applyContent = () => {
+      el.navDistanceToTurn.textContent = distanceText;
+      el.navInstruction.textContent = mainText;
+      el.navRoad.textContent = cleanRoadText;
+      state.navVisibleInstructionSig = contentSig;
+    };
+
+    // Om låset håller kvar samma sväng/instruktion ska kortet inte animera.
+    // Då uppdateras bara avståndet, t.ex. "Om 15 m" eller "Nu".
+    if (!state.navDisplayedStepKey || sameStep || sameVisibleInstruction) {
+      state.navDisplayedStepKey = stepKey;
+      el.navTop.classList.remove("nav-step-in", "nav-step-out");
+      applyContent();
+      return;
+    }
+
+    state.navDisplayedStepKey = stepKey;
+
+    el.navTop.classList.remove("nav-step-in", "nav-step-out");
     void el.navTop.offsetWidth;
-    el.navTop.classList.add("nav-step-change");
-    window.setTimeout(() => el.navTop.classList.remove("nav-step-change"), 420);
+    el.navTop.classList.add("nav-step-out");
+
+    state.navStepAnimationTimer = window.setTimeout(() => {
+      if (seq !== state.navStepAnimationSeq || state.navDisplayedStepKey !== stepKey) return;
+      applyContent();
+
+      el.navTop.classList.remove("nav-step-out");
+      void el.navTop.offsetWidth;
+      el.navTop.classList.add("nav-step-in");
+
+      state.navStepAnimationCleanupTimer = window.setTimeout(() => {
+        if (seq === state.navStepAnimationSeq) el.navTop.classList.remove("nav-step-in");
+      }, 285);
+    }, 150);
+  }
+
+  function isTurnLikeInstruction(step) {
+    const t = String(step?.text || "").toLowerCase();
+    return (
+      t.includes("sväng") ||
+      t.includes("håll vänster") ||
+      t.includes("håll höger") ||
+      t.includes("rondell") ||
+      t.includes("avfart") ||
+      t.includes("turn") ||
+      t.includes("left") ||
+      t.includes("right")
+    );
+  }
+
+  function instructionStableKey(step, index = "") {
+    return `${step?.index ?? index}:${step?.text ?? ""}`;
+  }
+
+  function findLockedTurnStep(steps) {
+    if (!state.turnLock) return { index: -1, step: null };
+    let index = state.turnLock.index;
+    let step = steps[index];
+
+    if (!step || instructionStableKey(step, index) !== state.turnLock.key) {
+      index = steps.findIndex((s, i) => instructionStableKey(s, i) === state.turnLock.key);
+      step = index >= 0 ? steps[index] : null;
+    }
+
+    return { index, step };
+  }
+
+  function releaseTurnLock() {
+    if (state.turnLock) state.turnLockReleasedKey = state.turnLock.key;
+    state.turnLock = null;
+  }
+
+  function acquireTurnLock(step, index) {
+    const key = instructionStableKey(step, index);
+    state.turnLock = {
+      key,
+      index,
+      distanceFromStart: step.distanceFromStart || 0,
+      text: step.text,
+      acquiredAt: Date.now()
+    };
+    return state.turnLock;
+  }
+
+  function currentLockedTurnInstruction(steps, d) {
+    if (!state.turnLock) return null;
+
+    const found = findLockedTurnStep(steps);
+    const step = found.step;
+    const index = found.index;
+
+    if (!step) {
+      releaseTurnLock();
+      return null;
+    }
+
+    const turnDistance = step.distanceFromStart || state.turnLock.distanceFromStart || 0;
+    const passedBy = d - turnDistance;
+    const nextTurn = steps.slice(index + 1).find(isTurnLikeInstruction);
+    const nextDistance = nextTurn ? (nextTurn.distanceFromStart || 0) - d : Infinity;
+    const releaseAfter = nextDistance <= CLOSE_NEXT_TURN_METERS ? TURN_LOCK_CLOSE_AFTER_METERS : TURN_LOCK_AFTER_METERS;
+
+    // Om rutten räknats om eller GPS-hoppen gör låset orimligt gammalt, släpp.
+    if (passedBy > Math.max(releaseAfter, TURN_LOCK_AFTER_METERS) + 60 || d < turnDistance - 120) {
+      releaseTurnLock();
+      return null;
+    }
+
+    const minHoldMs = nextDistance <= CLOSE_NEXT_TURN_METERS ? 1200 : 4200;
+    const heldLongEnough = Date.now() - (state.turnLock.acquiredAt || 0) >= minHoldMs;
+
+    if (passedBy >= releaseAfter && heldLongEnough) {
+      releaseTurnLock();
+      return null;
+    }
+
+    return {
+      step,
+      toTurn: Math.max(0, turnDistance - d),
+      key: `${instructionStableKey(step, index)}:locked`
+    };
+  }
+
+  function findNavigationInstruction(distanceAlong, remaining) {
+    const steps = state.route?.instructions || [];
+    if (!steps.length) return null;
+
+    const d = Math.max(0, distanceAlong || 0);
+
+    const locked = currentLockedTurnInstruction(steps, d);
+    if (locked) return locked;
+
+    // Skaffa lås innan svängen börjar. Då får nästa instruktion aldrig
+    // "sticka fram huvudet" mitt i svängen.
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      if (!isTurnLikeInstruction(step)) continue;
+
+      const turnDistance = step.distanceFromStart || 0;
+      const delta = turnDistance - d;
+      const key = instructionStableKey(step, i);
+
+      if (delta <= TURN_LOCK_BEFORE_METERS && delta >= -8) {
+        if (key === state.turnLockReleasedKey && d >= turnDistance - 5) continue;
+        acquireTurnLock(step, i);
+        return currentLockedTurnInstruction(steps, d);
+      }
+    }
+
+    const upcoming = steps.find(s => (s.distanceFromStart || 0) > d + 18) || null;
+
+    if (upcoming) {
+      return {
+        step: upcoming,
+        toTurn: Math.max(0, (upcoming.distanceFromStart || 0) - d),
+        key: `${instructionStableKey(upcoming, "")}`
+      };
+    }
+
+    const last = steps[steps.length - 1];
+    return {
+      step: last,
+      toTurn: Math.max(0, remaining),
+      key: `${instructionStableKey(last, "last")}`
+    };
   }
 
   function updateStepsUI() {
@@ -1121,11 +1621,11 @@
 
   function showSteps() {
     updateStepsUI();
-    el.stepsSheet.classList.remove("hidden");
+    showUiCard(el.stepsSheet);
   }
 
   function hideSteps() {
-    el.stepsSheet.classList.add("hidden");
+    hideUiCard(el.stepsSheet);
   }
 
   function enterNavigationMode(showToast = true) {
@@ -1136,13 +1636,23 @@
     state.navigating = true;
     state.follow = true;
     state.lastNavStepKey = "";
+    state.navDisplayedStepKey = "";
+    state.navVisibleInstructionSig = "";
+    state.turnLock = null;
+    state.turnLockReleasedKey = "";
+    state.navMaxDistanceAlong = 0;
+    state.navRerouteStatusUntil = 0;
+    state.navStepAnimationSeq = (state.navStepAnimationSeq || 0) + 1;
     state.lastRemainingRouteIndex = -1;
     state.offRouteHits = 0;
+    state.arrivedHandled = false;
     document.body.classList.add("navigating");
     setRouteCompactMode();
     el.navTop.classList.remove("hidden");
     el.navBottom.classList.remove("hidden");
     el.followBtn.textContent = "🧭 Följ: på";
+    updateResumeFollowButton();
+    enterDrivingView();
     updateNavigationFromPosition();
     if (showToast) toast("Navigation startad");
   }
@@ -1151,7 +1661,13 @@
     state.navigating = false;
     state.offRouteHits = 0;
     state.lastNavStepKey = "";
+    state.navDisplayedStepKey = "";
+    state.navVisibleInstructionSig = "";
+    state.turnLock = null;
+    state.turnLockReleasedKey = "";
     document.body.classList.remove("navigating");
+    state.navRerouteStatusUntil = 0;
+    updateResumeFollowButton();
     restoreFullRouteLine();
     setRouteCompactMode();
     el.navTop.classList.add("hidden");
@@ -1166,29 +1682,38 @@
     if (!pos) return;
 
     const progress = getRouteProgress(pos, state.route.coords, state.route.cumulative);
-    const remaining = Math.max(0, state.route.distance - progress.distanceAlong);
+    const rawRemaining = Math.max(0, state.route.distance - progress.distanceAlong);
     const next = findNextInstruction(progress.distanceAlong);
 
     if (state.navigating) {
-      updateRemainingRouteLine(progress);
+      state.navMaxDistanceAlong = Math.max(state.navMaxDistanceAlong || 0, progress.distanceAlong || 0);
+      const navDistanceAlong = state.navMaxDistanceAlong;
+      const remaining = Math.max(0, state.route.distance - navDistanceAlong);
 
-      el.navRemaining.textContent = `${fmtDist(remaining)} kvar · ${etaFromMeters(remaining)}`;
+      updateRemainingRouteLine({ ...progress, distanceAlong: navDistanceAlong });
+
+      el.navRemaining.textContent = `${fmtDist(rawRemaining)} kvar · ${etaFromMeters(rawRemaining)}`;
       el.navDestination.textContent = shortName(state.destination?.label || "Destination");
 
-      if (next) {
-        const toTurn = Math.max(0, next.distanceFromStart - progress.distanceAlong);
-        const parts = splitInstruction(next.text);
-        const stepKey = `${next.index ?? ""}:${next.text}`;
-        animateNavStepChange(stepKey);
+      if (rawRemaining <= ARRIVAL_METERS && progress.offRouteDistance < OFF_ROUTE_METERS) {
+        showNavStatus("arrival", "Framme", "Du är framme", "");
+        handleDestinationReached();
+        return;
+      }
 
-        el.navDistanceToTurn.textContent = `Om ${fmtDist(toTurn)}`;
-        el.navInstruction.textContent = parts.main;
-        el.navRoad.textContent = parts.road || "";
+      // Om omräkning/ny rutt precis visats ska den gröna rutan få ligga kvar kort.
+      if (state.navRerouteStatusUntil && Date.now() < state.navRerouteStatusUntil) {
+        return;
+      }
+
+      const nav = findNavigationInstruction(navDistanceAlong, remaining);
+
+      if (nav && nav.step) {
+        const parts = splitInstruction(nav.step.text);
+        const distanceText = nav.toTurn <= 3 ? "Nu" : `Om ${fmtDist(nav.toTurn)}`;
+        setNavInstructionContent(nav.key, distanceText, parts.main, parts.road || "");
       } else {
-        animateNavStepChange("final");
-        el.navDistanceToTurn.textContent = "Snart framme";
-        el.navInstruction.textContent = "Följ vägen";
-        el.navRoad.textContent = "";
+        setNavInstructionContent("follow", "Snart framme", "Följ vägen", "");
       }
 
       if (progress.offRouteDistance > OFF_ROUTE_METERS) {
@@ -1262,10 +1787,51 @@
   async function maybeReroute(offBy) {
     const now = Date.now();
     if (state.isRouting || now - state.lastRerouteAt < REROUTE_COOLDOWN_MS) return;
+    if (state.demoActive && (state.demoRerouting || state.demoRerouted)) return;
+
     state.lastRerouteAt = now;
     state.offRouteHits = 0;
+
+    showNavStatus("rerouting", "Räknar om...", "Hittar ny väg", "", REROUTE_STATUS_MS);
     toast(`Utanför rutten (${fmtDist(offBy)}). Beräknar om...`);
-    await calculateRoute({ reroute: true });
+
+    if (state.demoActive) {
+      state.demoRerouting = true;
+      if (el.betaBadge) el.betaBadge.textContent = "TESTLÄGE · räknar om";
+
+      try {
+        await calculateRoute({ reroute: true });
+
+        if (state.demoActive && state.route && state.route.coords && state.route.coords.length >= 2) {
+          state.demoRerouted = true;
+          state.demoPath = interpolateDemoPath(state.route.coords, null);
+          state.demoIndex = 0;
+          state.lastRemainingRouteIndex = -1;
+          state.navMaxDistanceAlong = 0;
+          if (el.betaBadge) el.betaBadge.textContent = "TESTLÄGE · fejk-GPS";
+          showNavStatus("reroute-ready", "Ny rutt klar", "Följ nya rutten", "Testläge", REROUTE_STATUS_MS);
+          window.setTimeout(updateNavigationFromPosition, REROUTE_STATUS_MS + 80);
+          toast("Testresa: ny rutt klar");
+        }
+      } catch (err) {
+        console.error(err);
+        showNavStatus("reroute-failed", "Omräkning misslyckades", "Följ skyltning", "", REROUTE_STATUS_MS);
+        toast("Testresa: omräkning misslyckades");
+      } finally {
+        state.demoRerouting = false;
+      }
+      return;
+    }
+
+    try {
+      await calculateRoute({ reroute: true });
+      showNavStatus("reroute-ready", "Ny rutt klar", "Följ nya rutten", "", REROUTE_STATUS_MS);
+      window.setTimeout(updateNavigationFromPosition, REROUTE_STATUS_MS + 80);
+    } catch (err) {
+      console.error(err);
+      showNavStatus("reroute-failed", "Omräkning misslyckades", "Följ skyltning", "", REROUTE_STATUS_MS);
+      throw err;
+    }
   }
 
   async function searchSweden(query) {
@@ -1380,6 +1946,7 @@
   }
 
   function clearAll() {
+    if (state.demoActive) stopDemoTrip("");
     el.destInput.value = "";
     el.startInput.value = "";
     el.destSuggestions.innerHTML = "";
@@ -1389,12 +1956,23 @@
     el.routeWarning.classList.add("hidden");
     if (el.routeAdvancedBtn) el.routeAdvancedBtn.classList.add("hidden");
     el.nextInstruction.classList.add("hidden");
-    el.stepsSheet.classList.add("hidden");
-    el.tapSheet.classList.add("hidden");
+    hideUiCard(el.stepsSheet, null, false);
+    hideUiCard(el.tapSheet, null, false);
     exitNavigationModeSilently();
 
     state.destination = null;
     state.route = null;
+    state.originalRoute = null;
+    state.originalStart = null;
+    state.beforeTapPickView = null;
+    state.navDisplayedStepKey = "";
+    state.navVisibleInstructionSig = "";
+    state.navMaxDistanceAlong = 0;
+    state.navRerouteStatusUntil = 0;
+    state.turnLock = null;
+    state.turnLockReleasedKey = "";
+    state.navStepAnimationSeq = (state.navStepAnimationSeq || 0) + 1;
+    state.arrivedHandled = false;
     state.offRouteHits = 0;
     state.lastNavStepKey = "";
     state.lastRemainingRouteIndex = -1;
@@ -1407,12 +1985,14 @@
     if (state.routeLayer) map.removeLayer(state.routeLayer);
     if (state.routeShadowLayer) map.removeLayer(state.routeShadowLayer);
     if (state.carRouteLayer) map.removeLayer(state.carRouteLayer);
+    if (state.drivenRouteLayer) map.removeLayer(state.drivenRouteLayer);
     if (state.destMarker) map.removeLayer(state.destMarker);
     if (state.startMarker) map.removeLayer(state.startMarker);
     if (state.tapPreviewMarker) map.removeLayer(state.tapPreviewMarker);
     state.routeLayer = null;
     state.routeShadowLayer = null;
     state.carRouteLayer = null;
+    state.drivenRouteLayer = null;
     state.destMarker = null;
     state.startMarker = null;
     state.tapPreviewMarker = null;
@@ -1424,7 +2004,13 @@
     state.navigating = false;
     state.offRouteHits = 0;
     state.lastNavStepKey = "";
+    state.navDisplayedStepKey = "";
+    state.navVisibleInstructionSig = "";
+    state.turnLock = null;
+    state.turnLockReleasedKey = "";
     document.body.classList.remove("navigating");
+    state.navRerouteStatusUntil = 0;
+    updateResumeFollowButton();
     restoreFullRouteLine();
     setRouteCompactMode();
     el.navTop.classList.add("hidden");
@@ -1432,10 +2018,17 @@
   }
 
   function showTapSheet(lat, lon) {
+    state.beforeTapPickView = {
+      center: map.getCenter(),
+      zoom: map.getZoom()
+    };
     state.selectedTap = { lat, lon, label: fmtCoord(lat, lon), fromMap: true };
     showTapPreviewMarker(lat, lon);
     el.tapCoords.textContent = fmtCoord(lat, lon);
-    el.tapSheet.classList.remove("hidden");
+    showUiCard(el.tapSheet);
+
+    const targetZoom = Math.max(map.getZoom(), 16);
+    map.flyTo([lat, lon], targetZoom, { animate: true, duration: 0.35 });
   }
 
 
@@ -1478,9 +2071,616 @@
     }
   }
 
+
+  function demoPosition(lat, lon, heading = 0, accuracy = 7) {
+    updateUserPosition({
+      __demo: true,
+      coords: {
+        latitude: lat,
+        longitude: lon,
+        accuracy,
+        heading
+      }
+    });
+  }
+
+
+  function restoreRealGpsAfterDemo() {
+    if (state.realUserPos) {
+      updateUserPosition({
+        coords: {
+          latitude: state.realUserPos.lat,
+          longitude: state.realUserPos.lon,
+          accuracy: state.realUserAccuracy || 30,
+          heading: typeof state.realUserHeading === "number" ? state.realUserHeading : undefined
+        }
+      });
+      if (state.follow && state.realUserPos) {
+        map.panTo([state.realUserPos.lat, state.realUserPos.lon], { animate: true, duration: 0.45 });
+      }
+      return;
+    }
+
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      updateUserPosition,
+      () => toast("Testläge stoppat. Väntar på riktig GPS..."),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 }
+    );
+  }
+
+  function makeDemoRoute() {
+    const coords = [
+      [56.87900, 14.80500],
+      [56.87955, 14.80625],
+      [56.88035, 14.80710],
+      [56.88110, 14.80855],
+      [56.88195, 14.80925],
+      [56.88255, 14.81065],
+      [56.88335, 14.81145],
+      [56.88415, 14.81285]
+    ];
+    const cumulative = buildCumulative(coords);
+
+    const instructions = [
+      {
+        text: "Starta på Testvägen",
+        road: "Testvägen",
+        point: coords[0],
+        distanceFromStart: 0,
+        stepDistance: cumulative[1] || 0,
+        index: 0
+      },
+      {
+        text: "Sväng höger på Demogatan",
+        road: "Demogatan",
+        point: coords[2],
+        distanceFromStart: cumulative[2] || 0,
+        stepDistance: (cumulative[3] || 0) - (cumulative[2] || 0),
+        index: 1
+      },
+      {
+        text: "Sväng vänster på Målvägen",
+        road: "Målvägen",
+        point: coords[5],
+        distanceFromStart: cumulative[5] || 0,
+        stepDistance: (cumulative[6] || 0) - (cumulative[5] || 0),
+        index: 2
+      },
+      {
+        text: "Du är framme",
+        road: "",
+        point: coords[coords.length - 1],
+        distanceFromStart: cumulative[cumulative.length - 1] || 0,
+        stepDistance: 0,
+        index: 3
+      }
+    ];
+
+    const destination = {
+      lat: coords[coords.length - 1][0],
+      lon: coords[coords.length - 1][1],
+      label: "Testmål · fejkresa"
+    };
+
+    state.destination = destination;
+    state.start = { mode: "gps", lat: coords[0][0], lon: coords[0][1], label: "Fejk-GPS" };
+    el.destInput.value = destination.label;
+    el.startInput.value = "Fejk-GPS";
+    el.startSection.classList.remove("hidden");
+    clearTapPreviewMarker();
+    placeMarker("dest", destination);
+
+    state.route = {
+      source: "Demo",
+      profile: { id: "demo", name: "Testresa", summary: "Fejk-GPS", useHighways: null, profilePenalty: 0 },
+      coords,
+      distance: cumulative[cumulative.length - 1] || 0,
+      cumulative,
+      instructions,
+      turnCount: 2,
+      score: 0
+    };
+    state.originalRoute = cloneRoute(state.route);
+    state.originalStart = clonePlace(state.start);
+
+    state.routeUsedFallback = false;
+    state.turnLock = null;
+    state.turnLockReleasedKey = "";
+    state.navMaxDistanceAlong = 0;
+    state.carRouteCoords = null;
+    drawCarRoute(null);
+    drawRoute(coords);
+    showRouteCard();
+
+    el.routeTitle.textContent = destination.label;
+    el.routeSubtitle.textContent = "Testresa · fejk-GPS";
+    el.routeMeta.textContent = `${(state.route.distance / 1000).toFixed(1)} km · ${etaFromMeters(state.route.distance)}`;
+    setRouteInfoText("TESTLÄGE: fejk-GPS kör en kort testresa. Riktig GPS ignoreras tills testet stoppas.", "Testresan simulerar GPS längs rutten, kör av rutten en gång och fortsätter sedan mot målet. Den testar nästa-steg-rutan, kvarvarande grön ruttlinje och snabb omräkning.");
+    updateStepsUI();
+    fitRoute(state.start, destination, coords);
+  }
+
+
+  function interpolateDemoPath(coords, wrongPlan = null) {
+    const path = [];
+    let wrongInserted = false;
+    const insertAt = wrongPlan ? Math.max(0, Math.min(wrongPlan.routeIndex || 0, coords.length - 2)) : -1;
+
+    const addSegment = (a, b, wrong = false) => {
+      const d = haversine({ lat: a[0], lon: a[1] }, { lat: b[0], lon: b[1] });
+      const steps = Math.max(2, Math.min(12, Math.ceil(d / 18)));
+      for (let j = 0; j < steps; j++) {
+        const t = j / steps;
+        path.push([
+          a[0] + (b[0] - a[0]) * t,
+          a[1] + (b[1] - a[1]) * t,
+          wrong
+        ]);
+      }
+    };
+
+    const addWrongPath = () => {
+      if (!wrongPlan || !wrongPlan.wrongCoords || wrongPlan.wrongCoords.length < 2) return;
+      wrongInserted = true;
+
+      const wrong = wrongPlan.wrongCoords;
+      for (let i = 0; i < wrong.length - 1; i++) {
+        addSegment(wrong[i], wrong[i + 1], true);
+      }
+
+      // V5.4: backa/vänd inte manuellt. När fejk-GPS hamnat fel ska riktig
+      // omruttning ta över och bygga ny rutt från den felaktiga positionen.
+    };
+
+    for (let i = 0; i < coords.length - 1; i++) {
+      if (wrongPlan && !wrongInserted && i >= insertAt) {
+        addWrongPath();
+      }
+      addSegment(coords[i], coords[i + 1], false);
+    }
+
+    path.push([coords[coords.length - 1][0], coords[coords.length - 1][1], false]);
+    return path;
+  }
+
+  function bearingBetweenPoints(a, b) {
+    if (!a || !b) return 0;
+    const lat1 = a[0] * Math.PI / 180;
+    const lat2 = b[0] * Math.PI / 180;
+    const dLon = (b[1] - a[1]) * Math.PI / 180;
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+
+  function angleDiff(a, b) {
+    return Math.abs(((a - b + 540) % 360) - 180);
+  }
+
+  function signedAngleDiff(from, to) {
+    return ((to - from + 540) % 360) - 180;
+  }
+
+  function offsetPoint(point, bearing, meters) {
+    const R = 6371000;
+    const brng = bearing * Math.PI / 180;
+    const lat1 = point[0] * Math.PI / 180;
+    const lon1 = point[1] * Math.PI / 180;
+    const d = meters / R;
+
+    const lat2 = Math.asin(
+      Math.sin(lat1) * Math.cos(d) +
+      Math.cos(lat1) * Math.sin(d) * Math.cos(brng)
+    );
+    const lon2 = lon1 + Math.atan2(
+      Math.sin(brng) * Math.sin(d) * Math.cos(lat1),
+      Math.cos(d) - Math.sin(lat1) * Math.sin(lat2)
+    );
+
+    return [lat2 * 180 / Math.PI, lon2 * 180 / Math.PI];
+  }
+
+  function closestCoordIndex(coords, point) {
+    let best = { index: 0, distance: Infinity };
+    for (let i = 0; i < coords.length; i++) {
+      const d = haversine({ lat: coords[i][0], lon: coords[i][1] }, { lat: point[0], lon: point[1] });
+      if (d < best.distance) best = { index: i, distance: d };
+    }
+    return best.index;
+  }
+
+  function coordIndexAtDistance(cumulative, distance) {
+    if (!cumulative || !cumulative.length) return 0;
+    for (let i = 1; i < cumulative.length; i++) {
+      if ((cumulative[i] || 0) >= distance) return i;
+    }
+    return cumulative.length - 1;
+  }
+
+  function findDemoTurnCandidates(route) {
+    const coords = route?.coords || [];
+    const cumulative = route?.cumulative || buildCumulative(coords);
+    const steps = route?.instructions || [];
+    if (coords.length < 4) return [];
+
+    const routeDistance = cumulative[cumulative.length - 1] || route.distance || 0;
+
+    const candidates = [];
+    for (const step of steps) {
+      const text = String(step.text || "").toLowerCase();
+      const isTurn =
+        text.includes("sväng") ||
+        text.includes("håll vänster") ||
+        text.includes("håll höger") ||
+        text.includes("avfart") ||
+        text.includes("rondell") ||
+        text.includes("turn") ||
+        text.includes("right") ||
+        text.includes("left");
+
+      if (!isTurn) continue;
+      if (text.includes("framme") || text.includes("arrive")) continue;
+
+      let idx = 0;
+      if (typeof step.distanceFromStart === "number") idx = coordIndexAtDistance(cumulative, step.distanceFromStart);
+      if (step.point) idx = closestCoordIndex(coords, step.point);
+
+      if (idx < 2 || idx > coords.length - 3) continue;
+
+      const dist = cumulative[idx] || 0;
+      if (routeDistance && (dist < routeDistance * 0.12 || dist > routeDistance * 0.88)) continue;
+
+      const beforeIdx = Math.max(0, idx - 3);
+      const afterIdx = Math.min(coords.length - 1, idx + 3);
+      const before = coords[beforeIdx];
+      const turn = coords[idx];
+      const after = coords[afterIdx];
+
+      const inBearing = bearingBetweenPoints(before, turn);
+      const outBearing = bearingBetweenPoints(turn, after);
+      const turnAngle = signedAngleDiff(inBearing, outBearing);
+      if (Math.abs(turnAngle) < 25) continue;
+
+      candidates.push({
+        routeIndex: idx,
+        point: turn,
+        inBearing,
+        outBearing,
+        turnAngle,
+        stepText: step.text || "Sväng",
+        score: Math.abs(turnAngle) + Math.min(80, dist / 20)
+      });
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates;
+  }
+
+  async function fetchOsmRoadsNear(point, radius = 95) {
+    const [lat, lon] = point;
+    const query = `
+      [out:json][timeout:14];
+      way(around:${radius},${lat},${lon})["highway"]
+        ["highway"!~"footway|path|cycleway|bridleway|steps|pedestrian|corridor|platform|construction|proposed"];
+      out tags geom;
+    `;
+
+    const endpoints = [
+      "https://overpass-api.de/api/interpreter",
+      "https://overpass.kumi.systems/api/interpreter"
+    ];
+
+    let lastError = null;
+    for (const endpoint of endpoints) {
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+          body: "data=" + encodeURIComponent(query)
+        });
+        if (!res.ok) throw new Error("Overpass svarade inte");
+        const data = await res.json();
+        return (data.elements || [])
+          .filter(elm => elm.type === "way" && elm.geometry && elm.geometry.length >= 2)
+          .map(elm => ({
+            id: elm.id,
+            name: elm.tags?.name || elm.tags?.ref || elm.tags?.highway || "väg",
+            highway: elm.tags?.highway || "",
+            coords: elm.geometry.map(g => [g.lat, g.lon])
+          }));
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError || new Error("Kunde inte hämta vägdata");
+  }
+
+  function buildWayWrongCoords(way, nearestIndex, direction, turnPoint) {
+    const coords = way.coords || [];
+    const out = [turnPoint];
+    let travelled = 0;
+    let prev = coords[nearestIndex] || turnPoint;
+
+    if (haversine({ lat: turnPoint[0], lon: turnPoint[1] }, { lat: prev[0], lon: prev[1] }) > 4) {
+      out.push(prev);
+    }
+
+    let i = nearestIndex + direction;
+    while (i >= 0 && i < coords.length && travelled < 180) {
+      const c = coords[i];
+      travelled += haversine({ lat: prev[0], lon: prev[1] }, { lat: c[0], lon: c[1] });
+      out.push(c);
+      prev = c;
+      i += direction;
+    }
+
+    return { coords: out, travelled };
+  }
+
+  function chooseWrongRoadFromOsm(candidate, roads) {
+    let best = null;
+
+    for (const way of roads) {
+      const coords = way.coords || [];
+      for (let i = 0; i < coords.length; i++) {
+        const nearDist = haversine(
+          { lat: candidate.point[0], lon: candidate.point[1] },
+          { lat: coords[i][0], lon: coords[i][1] }
+        );
+        if (nearDist > 45) continue;
+
+        for (const direction of [-1, 1]) {
+          const n = coords[i + direction];
+          if (!n) continue;
+
+          const heading = bearingBetweenPoints(coords[i], n);
+          const correctDiff = angleDiff(heading, candidate.outBearing);
+          const backDiff = angleDiff(heading, (candidate.inBearing + 180) % 360);
+
+          // Inte den rätta vägen, och inte tillbaka där testbilen kom ifrån.
+          if (correctDiff < 35 || backDiff < 30) continue;
+
+          const signedFromIncoming = signedAngleDiff(candidate.inBearing, heading);
+          const straightScore = Math.max(0, 55 - angleDiff(heading, candidate.inBearing));
+          const oppositeTurnScore =
+            (candidate.turnAngle > 25 && signedFromIncoming < -25) ||
+            (candidate.turnAngle < -25 && signedFromIncoming > 25) ? 45 : 0;
+
+          const built = buildWayWrongCoords(way, i, direction, candidate.point);
+          if (!built.coords || built.coords.length < 3 || built.travelled < 70) continue;
+
+          const score =
+            correctDiff * 1.5 +
+            straightScore +
+            oppositeTurnScore -
+            nearDist * 0.6 +
+            Math.min(45, built.travelled / 4);
+
+          if (!best || score > best.score) {
+            best = {
+              routeIndex: candidate.routeIndex,
+              point: candidate.point,
+              wrongCoords: built.coords,
+              stepText: candidate.stepText,
+              source: `OSM: ${way.name}`,
+              score
+            };
+          }
+        }
+      }
+    }
+
+    return best;
+  }
+
+  function fallbackWrongTurnPlan(route) {
+    const candidates = findDemoTurnCandidates(route);
+    if (!candidates.length) return null;
+
+    const c = candidates[0];
+    const wrongBearing = c.inBearing; // Missad sväng: fortsätt i tidigare riktning.
+    const wrongCoords = [
+      c.point,
+      offsetPoint(c.point, wrongBearing, 55),
+      offsetPoint(c.point, wrongBearing, 115),
+      offsetPoint(c.point, wrongBearing, 175)
+    ];
+
+    return {
+      routeIndex: c.routeIndex,
+      point: c.point,
+      wrongCoords,
+      stepText: c.stepText,
+      source: "fallback: missad sväng"
+    };
+  }
+
+  async function prepareDemoWrongTurnPlan(route) {
+    const candidates = findDemoTurnCandidates(route);
+    if (!candidates.length) return null;
+
+    for (const candidate of candidates.slice(0, 5)) {
+      if (!state.demoActive) return null;
+
+      try {
+        const roads = await fetchOsmRoadsNear(candidate.point, 105);
+        const plan = chooseWrongRoadFromOsm(candidate, roads);
+        if (plan) return plan;
+      } catch (err) {
+        console.warn("Kunde inte hämta OSM-vägar för testfelsväng", err);
+      }
+    }
+
+    return fallbackWrongTurnPlan(route);
+  }
+
+  async function startDemoTrip() {
+    if (state.demoActive) return;
+
+    state.demoActive = true;
+    state.demoWrongAnnounced = false;
+    state.demoReturnAnnounced = false;
+    state.demoWrongPlan = null;
+    state.demoPath = [];
+    state.demoIndex = 0;
+    state.demoRerouting = false;
+    state.demoRerouted = false;
+    state.demoPath = [];
+    state.demoIndex = 0;
+    state.demoRerouting = false;
+    state.demoRerouted = false;
+    state.offRouteHits = 0;
+    state.lastRerouteAt = 0;
+    state.lastNavStepKey = "";
+    state.lastRemainingRouteIndex = -1;
+
+    document.body.classList.add("demo-active");
+    if (el.betaBadge) {
+      el.betaBadge.classList.remove("hidden");
+      el.betaBadge.textContent = "TESTLÄGE · förbereder";
+      el.betaBadge.title = "Klicka för att stoppa testresan";
+    }
+
+    if (!state.route || !state.route.coords || state.route.coords.length < 2) {
+      makeDemoRoute();
+    } else {
+      showRouteCard();
+      drawRoute(state.route.coords);
+      updateStepsUI();
+    }
+
+    toast("Testresa: analyserar möjlig felsväng...");
+
+    const plan = await prepareDemoWrongTurnPlan(state.route);
+    if (!state.demoActive) return;
+
+    state.demoWrongPlan = plan;
+
+    if (el.betaBadge) {
+      el.betaBadge.textContent = "TESTLÄGE · fejk-GPS";
+    }
+
+    if (plan) {
+      toast(`Testresa: felsväng förberedd vid “${plan.stepText}”`);
+    } else {
+      toast("Testresa: ingen tydlig felsväng hittades, kör utan fel");
+    }
+
+    state.demoPath = interpolateDemoPath(state.route.coords, plan);
+    state.demoIndex = 0;
+
+    if (!state.demoPath.length) {
+      stopDemoTrip("Kunde inte starta testresa.");
+      return;
+    }
+
+    demoPosition(state.demoPath[0][0], state.demoPath[0][1], bearingBetweenPoints(state.demoPath[0], state.demoPath[1]));
+    enterNavigationMode(false);
+    toast("Testresa startad");
+
+    clearInterval(state.demoTimer);
+    state.demoTimer = window.setInterval(() => {
+      if (!state.demoActive) return;
+      if (state.demoRerouting) return;
+
+      const path = state.demoPath || [];
+      if (!path.length) {
+        stopDemoTrip("Testresa klar");
+        return;
+      }
+
+      const i = Math.min(state.demoIndex, path.length - 1);
+      const current = path[i];
+      const next = path[Math.min(i + 1, path.length - 1)];
+      const heading = bearingBetweenPoints(current, next);
+
+      if (current[2] && !state.demoWrongAnnounced) {
+        state.demoWrongAnnounced = true;
+        toast("Testresa: tar en realistisk felsväng");
+      }
+
+      demoPosition(current[0], current[1], heading);
+      state.demoIndex = i + 1;
+
+      if (state.demoRerouted && !state.demoReturnAnnounced && state.demoIndex > 2) {
+        state.demoReturnAnnounced = true;
+        toast("Testresa: följer ny omruttad väg");
+      }
+
+      if (state.demoIndex >= path.length) {
+        stopDemoTrip("Testresa klar");
+      }
+    }, 720);
+  }
+
+  function stopDemoTrip(message = "Testresa stoppad") {
+    clearInterval(state.demoTimer);
+    state.demoTimer = null;
+    state.demoActive = false;
+    state.demoLongPressFired = false;
+    state.demoWrongAnnounced = false;
+    state.demoReturnAnnounced = false;
+    state.demoWrongPlan = null;
+    state.demoPath = [];
+    state.demoIndex = 0;
+    state.demoRerouting = false;
+    state.demoRerouted = false;
+    document.body.classList.remove("demo-active");
+
+    if (el.betaBadge) {
+      el.betaBadge.textContent = "BETA · v5.8";
+      el.betaBadge.title = "Klicka för att dölja. Håll inne för testresa.";
+    }
+
+    if (state.navigating) exitNavigationModeSilently();
+    restoreRealGpsAfterDemo();
+    if (message) toast(message);
+  }
+
+  function setupBetaBadgeSecret() {
+    if (!el.betaBadge) return;
+
+    el.betaBadge.title = "Klicka för att dölja. Håll inne för testresa.";
+
+    const startHold = (ev) => {
+      state.demoLongPressFired = false;
+      clearTimeout(state.demoLongPressTimer);
+      state.demoLongPressTimer = window.setTimeout(() => {
+        state.demoLongPressFired = true;
+        if (ev && ev.preventDefault) ev.preventDefault();
+        startDemoTrip();
+      }, 1500);
+    };
+
+    const cancelHold = () => {
+      clearTimeout(state.demoLongPressTimer);
+    };
+
+    el.betaBadge.addEventListener("pointerdown", startHold);
+    el.betaBadge.addEventListener("pointerup", cancelHold);
+    el.betaBadge.addEventListener("pointercancel", cancelHold);
+    el.betaBadge.addEventListener("pointerleave", cancelHold);
+
+    el.betaBadge.addEventListener("click", (ev) => {
+      if (state.demoLongPressFired) {
+        ev.preventDefault();
+        state.demoLongPressFired = false;
+        return;
+      }
+
+      if (state.demoActive) {
+        stopDemoTrip("Testresa stoppad");
+        return;
+      }
+
+      el.betaBadge.classList.add("hidden");
+    });
+  }
+
   function initEvents() {
     el.panelHandle.addEventListener("click", togglePanelCollapsed);
-    if (el.betaBadge) el.betaBadge.addEventListener("click", () => el.betaBadge.classList.add("hidden"));
+    setupBetaBadgeSecret();
     setupSearch(el.destInput, el.destSuggestions, p => setDestination(p, true));
     setupSearch(el.startInput, el.startSuggestions, p => setStart(p));
 
@@ -1497,10 +2697,23 @@
     });
 
     el.followBtn.addEventListener("click", () => {
-      state.follow = !state.follow;
-      el.followBtn.textContent = state.follow ? "🧭 Följ: på" : "🧭 Följ: av";
-      toast(state.follow ? "Följläge på" : "Följläge av");
+      setFollowMode(!state.follow, true);
     });
+
+    if (el.resumeFollowBtn) {
+      const resumeDriving = (ev) => {
+        if (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+        setFollowMode(true, true, { delayResumeHide: true });
+      };
+      el.resumeFollowBtn.addEventListener("pointerdown", resumeDriving);
+      el.resumeFollowBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+      });
+    }
 
     el.clearRouteBtn.addEventListener("click", clearAll);
     el.closeRouteBtn.addEventListener("click", clearAll);
@@ -1548,8 +2761,7 @@
 
     map.on("dragstart", () => {
       if (state.follow) {
-        state.follow = false;
-        el.followBtn.textContent = "🧭 Följ: av";
+        setFollowMode(false, false);
       }
 
       // Auto-minimera bara på telefon/liten skärm när kartan dras.

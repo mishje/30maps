@@ -878,3 +878,250 @@ body.panel-collapsed #appPanel.panel{
   35%{transform:scale(1.025);box-shadow:0 22px 70px rgba(0,0,0,.38)}
   100%{transform:scale(1);box-shadow:0 18px 55px rgba(0,0,0,.28)}
 }
+
+
+/* =========================
+   V5.1/V5.2: hemlig testresa / fejk-GPS
+   ========================= */
+
+body.demo-active .beta-badge{
+  display:block!important;
+  background:rgba(180,65,0,.94)!important;
+  color:#fff!important;
+  border-color:rgba(255,255,255,.32)!important;
+  box-shadow:0 10px 34px rgba(180,65,0,.36)!important;
+}
+
+body.demo-active .nav-top{
+  outline:3px solid rgba(255,170,70,.42);
+}
+
+body.demo-active .nav-top::after{
+  content:"TESTLÄGE";
+  display:inline-block;
+  margin-top:8px;
+  padding:4px 8px;
+  border-radius:999px;
+  background:rgba(255,255,255,.18);
+  color:#fff;
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.04em;
+}
+
+
+/* V5.2/V5.3: testläget kan först visa förberedelse medan vägdata hämtas. */
+body.demo-active .beta-badge{
+  pointer-events:auto!important;
+}
+
+
+/* =========================
+   V5.4: tydligare kartmarkörer och nästa-sväng-kort
+   ========================= */
+
+.map-pin{
+  position:relative;
+  width:30px;
+  height:30px;
+  border-radius:50% 50% 50% 0;
+  transform:rotate(-45deg);
+  border:3px solid #fff;
+  box-shadow:0 6px 18px rgba(0,0,0,.35);
+}
+.map-pin span{
+  position:absolute;
+  inset:0;
+  display:grid;
+  place-items:center;
+  transform:rotate(45deg);
+  color:#fff;
+  font-size:12px;
+  font-weight:950;
+}
+.map-pin-preview{background:#f97316}
+.map-pin-start{background:#0b7cff}
+.map-pin-dest{background:#ef4444}
+
+.nav-top.nav-step-out{
+  animation:navStepOutV54 .16s ease-in forwards!important;
+}
+.nav-top.nav-step-in{
+  animation:navStepInV54 .26s cubic-bezier(.18,1.25,.32,1) both!important;
+}
+@keyframes navStepOutV54{
+  from{opacity:1;transform:translateX(0) rotate(0deg) scale(1)}
+  to{opacity:0;transform:translateX(42px) rotate(1.2deg) scale(.985)}
+}
+@keyframes navStepInV54{
+  from{opacity:0;transform:translateX(-46px) rotate(-1.2deg) scale(.985)}
+  72%{opacity:1;transform:translateX(2px) rotate(.12deg) scale(1.012)}
+  to{opacity:1;transform:translateX(0) rotate(0deg) scale(1)}
+}
+
+/* Behåll V5:s diskreta puls endast som fallback om gammal klass finns. */
+.nav-top.nav-step-change{
+  animation:none!important;
+}
+
+
+/* =========================
+   V5.5: tydligare omruttning, körläge och körd rutt
+   ========================= */
+
+.resume-follow-btn{
+  position:fixed;
+  z-index:1450;
+  left:50%;
+  bottom:calc(max(12px,env(safe-area-inset-bottom)) + 86px);
+  transform:translateX(-50%);
+  min-height:44px;
+  padding:10px 15px;
+  border-radius:999px;
+  background:rgba(17,24,39,.92);
+  color:#fff;
+  border:1px solid rgba(255,255,255,.22);
+  box-shadow:0 14px 42px rgba(0,0,0,.28);
+  font-weight:900;
+  backdrop-filter:blur(12px);
+}
+.resume-follow-btn.hidden{
+  display:none!important;
+}
+body.dark .resume-follow-btn{
+  background:rgba(255,255,255,.9);
+  color:#111821;
+  border-color:rgba(0,0,0,.12);
+}
+
+.nav-top.nav-step-out{
+  animation:navStepOutV55 .16s ease-in forwards!important;
+}
+.nav-top.nav-step-in{
+  animation:navStepInV55 .28s cubic-bezier(.18,1.22,.32,1) both!important;
+}
+@keyframes navStepOutV55{
+  from{opacity:1;transform:translateX(0) rotate(0deg) scale(1)}
+  to{opacity:0;transform:translateX(54px) rotate(1.5deg) scale(.982)}
+}
+@keyframes navStepInV55{
+  from{opacity:0;transform:translateX(-58px) rotate(-1.5deg) scale(.982)}
+  72%{opacity:1;transform:translateX(3px) rotate(.15deg) scale(1.012)}
+  to{opacity:1;transform:translateX(0) rotate(0deg) scale(1)}
+}
+
+
+/* =========================
+   V5.6: tema-rätt versionsruta, mjuka UI-kort och hårdare körpolish
+   ========================= */
+
+.beta-badge{
+  background:rgba(255,255,255,.9)!important;
+  color:#111821!important;
+  border-color:rgba(17,24,39,.14)!important;
+  box-shadow:0 8px 28px rgba(0,0,0,.16)!important;
+}
+body.dark .beta-badge{
+  background:rgba(17,24,39,.9)!important;
+  color:#fff!important;
+  border-color:rgba(255,255,255,.2)!important;
+  box-shadow:0 8px 28px rgba(0,0,0,.34)!important;
+}
+
+/* Samma vanliga kortanimation för panel/ruttkort/vald plats/steg.
+   Den är medvetet lugnare än svängkortets sidanimation. */
+.panel.ui-card-in .panel-content,
+.route-card.ui-card-in,
+.tap-sheet.ui-card-in,
+.steps-sheet.ui-card-in{
+  animation:uiCardInV56 .30s cubic-bezier(.2,.9,.25,1) both!important;
+}
+.panel.ui-card-out .panel-content,
+.route-card.ui-card-out,
+.tap-sheet.ui-card-out,
+.steps-sheet.ui-card-out{
+  animation:uiCardOutV56 .24s ease both!important;
+}
+@keyframes uiCardInV56{
+  from{opacity:0;transform:translateY(14px) scale(.982)}
+  70%{opacity:1;transform:translateY(-1px) scale(1.004)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes uiCardOutV56{
+  from{opacity:1;transform:translateY(0) scale(1)}
+  to{opacity:0;transform:translateY(12px) scale(.982)}
+}
+
+/* Min/max av sök/favorit-rutan ska kännas som samma familj. */
+.panel,
+.panel-content,
+.route-card,
+.tap-sheet,
+.steps-sheet{
+  transition:
+    opacity .28s ease,
+    transform .30s cubic-bezier(.2,.9,.25,1),
+    max-height .30s cubic-bezier(.2,.9,.25,1)!important;
+}
+
+body.panel-collapsed .panel-content{
+  transform:translateY(-8px) scale(.985);
+}
+
+.nav-top.nav-step-out{
+  animation:navStepOutV56 .16s ease-in forwards!important;
+}
+.nav-top.nav-step-in{
+  animation:navStepInV56 .28s cubic-bezier(.18,1.22,.32,1) both!important;
+}
+@keyframes navStepOutV56{
+  from{opacity:1;transform:translateX(0) rotate(0deg) scale(1)}
+  to{opacity:0;transform:translateX(54px) rotate(1.5deg) scale(.982)}
+}
+@keyframes navStepInV56{
+  from{opacity:0;transform:translateX(-58px) rotate(-1.5deg) scale(.982)}
+  72%{opacity:1;transform:translateX(3px) rotate(.15deg) scale(1.012)}
+  to{opacity:1;transform:translateX(0) rotate(0deg) scale(1)}
+}
+
+
+body.demo-active .beta-badge{
+  display:block!important;
+  background:rgba(180,65,0,.94)!important;
+  color:#fff!important;
+  border-color:rgba(255,255,255,.32)!important;
+  box-shadow:0 10px 34px rgba(180,65,0,.36)!important;
+}
+
+
+/* =========================
+   V5.8: stabil Tillbaka till körläge-knapp och korrekt körstart
+   ========================= */
+
+.resume-follow-btn{
+  left:50%!important;
+  right:auto!important;
+  transform:translate3d(-50%,0,0)!important;
+  min-width:218px;
+  min-height:50px;
+  padding:12px 18px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+  will-change:auto;
+}
+.resume-follow-btn:active,
+.resume-follow-btn:focus,
+.resume-follow-btn.resume-follow-hiding{
+  transform:translate3d(-50%,0,0)!important;
+}
+.resume-follow-btn.resume-follow-hiding{
+  opacity:.88;
+  pointer-events:none;
+}
+.resume-follow-btn.hidden{
+  display:none!important;
+}
