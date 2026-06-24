@@ -1,12 +1,12 @@
 (() => {
   "use strict";
 
-  const VERSION = "4.2-v38base";
+  const VERSION = "5";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
-  const OFF_ROUTE_METERS = 110;
-  const REROUTE_COOLDOWN_MS = 25000;
+  const OFF_ROUTE_METERS = 80;
+  const REROUTE_COOLDOWN_MS = 10000;
 
   const el = {
     boot: document.getElementById("boot"),
@@ -59,7 +59,8 @@
     tapFavBtn: document.getElementById("tapFavBtn"),
     tapCopyBtn: document.getElementById("tapCopyBtn"),
     tapCloseBtn: document.getElementById("tapCloseBtn"),
-    toast: document.getElementById("toast")
+    toast: document.getElementById("toast"),
+    betaBadge: document.getElementById("betaBadge")
   };
 
   const state = {
@@ -89,7 +90,10 @@
     carRouteCoords: null,
     basicRouteInfo: "",
     advancedRouteInfo: "",
-    advancedRouteShown: false
+    advancedRouteShown: false,
+    offRouteHits: 0,
+    lastNavStepKey: "",
+    lastRemainingRouteIndex: -1
   };
 
   const map = L.map("map", {
@@ -129,45 +133,21 @@
     if (state.navigating) return;
     if (collapsed && isTypingInInput() && !options.force) return;
 
-    const next = Boolean(collapsed);
-    const changed = state.panelCollapsed !== next;
+    state.panelCollapsed = Boolean(collapsed);
     clearTimeout(state.panelAnimationTimer);
     el.panel.classList.remove("panel-opening", "panel-closing", "panel-simple-opening", "panel-simple-closing");
-
-    if (!changed) {
-      document.body.classList.toggle("panel-collapsed", next);
-      setRouteCompactMode();
-      return;
-    }
-
-    state.panelCollapsed = next;
+    document.body.classList.toggle("panel-collapsed", state.panelCollapsed);
 
     if (el.panelHandleText) {
-      el.panelHandleText.textContent = next ? "🔍 Sök / favoriter" : "🔍 Minimera";
+      el.panelHandleText.textContent = state.panelCollapsed ? "🔍 Sök / favoriter" : "🔍 Minimera";
     }
 
-    if (next) {
-      // V4.2: superenkel stängning. Bara snabb fade på innehållet innan panelen blir flärp.
-      el.panel.classList.add("panel-simple-closing");
-      setRouteCompactMode();
-
-      state.panelAnimationTimer = window.setTimeout(() => {
-        document.body.classList.add("panel-collapsed");
-        el.panel.classList.remove("panel-simple-closing");
-        el.destSuggestions.innerHTML = "";
-        el.startSuggestions.innerHTML = "";
-      }, 165);
-    } else {
-      // V4.2: öppna direkt och fadea in innehållet. Ingen clip-path/blur/scale.
-      document.body.classList.remove("panel-collapsed");
-      void el.panel.offsetWidth;
-      el.panel.classList.add("panel-simple-opening");
-      setRouteCompactMode();
-
-      state.panelAnimationTimer = window.setTimeout(() => {
-        el.panel.classList.remove("panel-simple-opening");
-      }, 170);
+    if (state.panelCollapsed) {
+      el.destSuggestions.innerHTML = "";
+      el.startSuggestions.innerHTML = "";
     }
+
+    setRouteCompactMode();
   }
 
   function togglePanelCollapsed() {
@@ -178,7 +158,6 @@
     el.boot.classList.add("fade");
     setTimeout(() => el.boot.classList.add("hidden"), 480);
     el.panel.classList.remove("hidden");
-    el.panel.classList.add("appear");
     setPanelCollapsed(false, { force: true });
     setTimeout(() => map.invalidateSize(), 140);
   }
@@ -515,46 +494,17 @@
   }
 
   function showRouteCard() {
-    if (state.routeCardVisible) {
-      // Redan öppen: uppdatera bara. Starta inte om animationen.
-      el.routeCard.classList.remove("hidden", "route-exit", "route-enter");
-      setRouteCompactMode();
-      return;
-    }
-
     state.routeCardVisible = true;
-    el.routeCard.classList.remove("hidden", "route-exit", "route-enter");
-    void el.routeCard.offsetWidth;
-    el.routeCard.classList.add("route-enter");
+    el.routeCard.classList.remove("hidden", "route-enter", "route-exit");
     setRouteCompactMode();
-
-    window.setTimeout(() => {
-      el.routeCard.classList.remove("route-enter");
-    }, 360);
   }
 
   function hideRouteCard(animated = true) {
-    if (!state.routeCardVisible && el.routeCard.classList.contains("hidden")) return;
-
     state.routeCardVisible = false;
     document.body.classList.remove("route-compact");
-
-    if (!animated) {
-      el.routeCard.classList.add("hidden");
-      el.routeCard.classList.remove("route-enter", "route-exit");
-      setAdvancedRouteVisible(false);
-      return;
-    }
-
+    el.routeCard.classList.add("hidden");
     el.routeCard.classList.remove("route-enter", "route-exit");
-    void el.routeCard.offsetWidth;
-    el.routeCard.classList.add("route-exit");
-
-    window.setTimeout(() => {
-      el.routeCard.classList.add("hidden");
-      el.routeCard.classList.remove("route-exit");
-      setAdvancedRouteVisible(false);
-    }, 300);
+    if (typeof setAdvancedRouteVisible === "function") setAdvancedRouteVisible(false);
   }
 
   async function calculateRoute(options = {}) {
@@ -638,6 +588,10 @@
       }
 
       fitRoute(start, dest, route.coords);
+      // Kör en extra passning när ruttkortets riktiga höjd är klar.
+      window.setTimeout(() => {
+        if (!state.navigating && state.route === route) fitRoute(start, dest, route.coords);
+      }, 80);
       updateFavoriteButton();
       setRouteCompactMode();
       if (state.navigating) enterNavigationMode(false);
@@ -652,7 +606,28 @@
   function fitRoute(start, dest, coords) {
     const bounds = L.latLngBounds([[start.lat, start.lon], [dest.lat, dest.lon]]);
     for (const c of coords) bounds.extend(c);
-    map.fitBounds(bounds, { paddingTopLeft: [20, 230], paddingBottomRight: [20, 150] });
+
+    const mapEl = map.getContainer();
+    const mapH = mapEl.clientHeight || window.innerHeight || 700;
+
+    if (isDesktopLayout()) {
+      map.fitBounds(bounds, {
+        paddingTopLeft: [90, 90],
+        paddingBottomRight: [90, 90]
+      });
+      return;
+    }
+
+    const panelRect = el.panel && !el.panel.classList.contains("hidden") ? el.panel.getBoundingClientRect() : { bottom: 0 };
+    const routeRect = el.routeCard && !el.routeCard.classList.contains("hidden") ? el.routeCard.getBoundingClientRect() : { height: 0 };
+
+    const topPad = Math.min(Math.max(90, panelRect.bottom + 18), Math.round(mapH * 0.28));
+    const bottomPad = Math.min(Math.max(170, routeRect.height + 36), Math.round(mapH * 0.62));
+
+    map.fitBounds(bounds, {
+      paddingTopLeft: [20, topPad],
+      paddingBottomRight: [20, bottomPad]
+    });
   }
 
   async function getSmartAtraktorRoute(start, dest) {
@@ -1081,6 +1056,53 @@
     }).addTo(map);
   }
 
+
+  function getRemainingRouteCoords(progress) {
+    if (!state.route || !state.route.coords || !state.route.coords.length) return [];
+    const coords = state.route.coords;
+    const startIndex = Math.max(0, Math.min(progress.index || 0, coords.length - 1));
+    const remaining = [];
+
+    if (progress.point) remaining.push(progress.point);
+    remaining.push(...coords.slice(startIndex + 1));
+
+    if (remaining.length < 2) return coords.slice(-2);
+    return remaining;
+  }
+
+  function updateRemainingRouteLine(progress) {
+    if (!state.navigating || !state.route) return;
+
+    const idx = progress.index || 0;
+    const shouldUpdate =
+      state.lastRemainingRouteIndex < 0 ||
+      idx >= state.lastRemainingRouteIndex + 2 ||
+      idx < state.lastRemainingRouteIndex;
+
+    if (!shouldUpdate) return;
+    state.lastRemainingRouteIndex = idx;
+
+    const remainingCoords = getRemainingRouteCoords(progress);
+    if (remainingCoords.length >= 2) drawRoute(remainingCoords);
+  }
+
+  function restoreFullRouteLine() {
+    state.lastRemainingRouteIndex = -1;
+    if (state.route && state.route.coords && state.route.coords.length) {
+      drawRoute(state.route.coords);
+    }
+  }
+
+  function animateNavStepChange(stepKey) {
+    if (!state.navigating || !stepKey || state.lastNavStepKey === stepKey) return;
+    state.lastNavStepKey = stepKey;
+
+    el.navTop.classList.remove("nav-step-change");
+    void el.navTop.offsetWidth;
+    el.navTop.classList.add("nav-step-change");
+    window.setTimeout(() => el.navTop.classList.remove("nav-step-change"), 420);
+  }
+
   function updateStepsUI() {
     const steps = state.route?.instructions || [];
     el.stepsList.innerHTML = "";
@@ -1113,6 +1135,9 @@
     }
     state.navigating = true;
     state.follow = true;
+    state.lastNavStepKey = "";
+    state.lastRemainingRouteIndex = -1;
+    state.offRouteHits = 0;
     document.body.classList.add("navigating");
     setRouteCompactMode();
     el.navTop.classList.remove("hidden");
@@ -1124,7 +1149,10 @@
 
   function exitNavigationMode() {
     state.navigating = false;
+    state.offRouteHits = 0;
+    state.lastNavStepKey = "";
     document.body.classList.remove("navigating");
+    restoreFullRouteLine();
     setRouteCompactMode();
     el.navTop.classList.add("hidden");
     el.navBottom.classList.add("hidden");
@@ -1142,22 +1170,33 @@
     const next = findNextInstruction(progress.distanceAlong);
 
     if (state.navigating) {
+      updateRemainingRouteLine(progress);
+
       el.navRemaining.textContent = `${fmtDist(remaining)} kvar · ${etaFromMeters(remaining)}`;
       el.navDestination.textContent = shortName(state.destination?.label || "Destination");
 
       if (next) {
         const toTurn = Math.max(0, next.distanceFromStart - progress.distanceAlong);
         const parts = splitInstruction(next.text);
+        const stepKey = `${next.index ?? ""}:${next.text}`;
+        animateNavStepChange(stepKey);
+
         el.navDistanceToTurn.textContent = `Om ${fmtDist(toTurn)}`;
         el.navInstruction.textContent = parts.main;
         el.navRoad.textContent = parts.road || "";
       } else {
+        animateNavStepChange("final");
         el.navDistanceToTurn.textContent = "Snart framme";
         el.navInstruction.textContent = "Följ vägen";
         el.navRoad.textContent = "";
       }
 
-      if (progress.offRouteDistance > OFF_ROUTE_METERS) maybeReroute(progress.offRouteDistance);
+      if (progress.offRouteDistance > OFF_ROUTE_METERS) {
+        state.offRouteHits += 1;
+        if (state.offRouteHits >= 2) maybeReroute(progress.offRouteDistance);
+      } else {
+        state.offRouteHits = 0;
+      }
     }
 
     if (next && !state.navigating) {
@@ -1191,7 +1230,15 @@
         };
       }
     }
-    return { distanceAlong: best.distanceAlong, offRouteDistance: best.distance };
+    const i = best.index;
+    const t = best.t;
+    const a = coords[i] || coords[0];
+    const b = coords[i + 1] || a;
+    const point = [
+      a[0] + (b[0] - a[0]) * t,
+      a[1] + (b[1] - a[1]) * t
+    ];
+    return { distanceAlong: best.distanceAlong, offRouteDistance: best.distance, index: i, t, point };
   }
 
   function latLonToXY(lat, lon, refLat) {
@@ -1216,6 +1263,7 @@
     const now = Date.now();
     if (state.isRouting || now - state.lastRerouteAt < REROUTE_COOLDOWN_MS) return;
     state.lastRerouteAt = now;
+    state.offRouteHits = 0;
     toast(`Utanför rutten (${fmtDist(offBy)}). Beräknar om...`);
     await calculateRoute({ reroute: true });
   }
@@ -1347,6 +1395,9 @@
 
     state.destination = null;
     state.route = null;
+    state.offRouteHits = 0;
+    state.lastNavStepKey = "";
+    state.lastRemainingRouteIndex = -1;
     state.carRouteCoords = null;
     state.basicRouteInfo = "";
     state.advancedRouteInfo = "";
@@ -1371,7 +1422,10 @@
 
   function exitNavigationModeSilently() {
     state.navigating = false;
+    state.offRouteHits = 0;
+    state.lastNavStepKey = "";
     document.body.classList.remove("navigating");
+    restoreFullRouteLine();
     setRouteCompactMode();
     el.navTop.classList.add("hidden");
     el.navBottom.classList.add("hidden");
@@ -1426,6 +1480,7 @@
 
   function initEvents() {
     el.panelHandle.addEventListener("click", togglePanelCollapsed);
+    if (el.betaBadge) el.betaBadge.addEventListener("click", () => el.betaBadge.classList.add("hidden"));
     setupSearch(el.destInput, el.destSuggestions, p => setDestination(p, true));
     setupSearch(el.startInput, el.startSuggestions, p => setStart(p));
 
