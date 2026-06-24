@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "5.9";
+  const VERSION = "6";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
@@ -54,6 +54,7 @@
     nextInstruction: document.getElementById("nextInstruction"),
     startNavigationBtn: document.getElementById("startNavigationBtn"),
     favoriteDestinationBtn: document.getElementById("favoriteDestinationBtn"),
+    shareDestinationBtn: document.getElementById("shareDestinationBtn"),
     toggleStepsBtn: document.getElementById("toggleStepsBtn"),
     navTop: document.getElementById("navTop"),
     navDistanceToTurn: document.getElementById("navDistanceToTurn"),
@@ -73,6 +74,7 @@
     tapStartBtn: document.getElementById("tapStartBtn"),
     tapFavBtn: document.getElementById("tapFavBtn"),
     tapCopyBtn: document.getElementById("tapCopyBtn"),
+    tapShareBtn: document.getElementById("tapShareBtn"),
     tapCloseBtn: document.getElementById("tapCloseBtn"),
     toast: document.getElementById("toast"),
     betaBadge: document.getElementById("betaBadge"),
@@ -138,7 +140,9 @@
     turnLockReleasedKey: "",
     navStepAnimationCleanupTimer: null,
     navStepAnimationSeq: 0,
-    resumeFollowHideTimer: null
+    resumeFollowHideTimer: null,
+    sharedDestinationAutoRoute: false,
+    lastSharedDestinationHash: ""
   };
 
   const map = L.map("map", {
@@ -314,6 +318,131 @@
   function storageSet(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
   }
+
+  function getAppBaseUrl() {
+    const configured = window.MAPS_CONFIG && typeof window.MAPS_CONFIG.APP_BASE_URL === "string"
+      ? window.MAPS_CONFIG.APP_BASE_URL.trim()
+      : "";
+
+    try {
+      const url = new URL(configured || "./", window.location.href);
+      url.hash = "";
+      url.search = "";
+      let out = url.toString();
+      if (!out.endsWith("/")) out += "/";
+      return out;
+    } catch {
+      return new URL("./", window.location.href).toString();
+    }
+  }
+
+  function makeDestinationShareUrl(place) {
+    const url = new URL(getAppBaseUrl());
+    const params = new URLSearchParams();
+    params.set("dest", `${Number(place.lat).toFixed(6)},${Number(place.lon).toFixed(6)}`);
+    if (place.label) params.set("label", String(place.label).slice(0, 160));
+    url.hash = params.toString();
+    return url.toString();
+  }
+
+  async function copyShareLink(text) {
+    if (navigator.clipboard && window.isSecureContext !== false) {
+      try {
+        await navigator.clipboard.writeText(text);
+        toast("Länk kopierad");
+        return;
+      } catch {
+        // Faller vidare till prompt.
+      }
+    }
+    prompt("Kopiera länken:", text);
+  }
+
+  async function shareDestination(place) {
+    if (!place || !Number.isFinite(Number(place.lat)) || !Number.isFinite(Number(place.lon))) {
+      toast("Inget mål att dela");
+      return;
+    }
+
+    const label = place.label || fmtCoord(place.lat, place.lon);
+    const url = makeDestinationShareUrl({ ...place, label });
+    const title = "Mål i 30maps";
+    const text = `Mål i 30maps: ${shortName(label)}\nÖppna och räkna A-traktor-rutt dit.`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text, url });
+        return;
+      } catch (err) {
+        if (err && err.name === "AbortError") return;
+        console.warn("Share failed, copying link instead", err);
+      }
+    }
+
+    await copyShareLink(url);
+  }
+
+  function parseSharedDestinationFromHash() {
+    const hash = String(window.location.hash || "").replace(/^#/, "");
+    if (!hash) return null;
+
+    const params = new URLSearchParams(hash);
+    const rawDest = params.get("dest") || params.get("mål") || "";
+    const parts = rawDest.split(",").map(v => Number(v.trim()));
+
+    if (parts.length !== 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1])) return null;
+
+    const lat = parts[0];
+    const lon = parts[1];
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+
+    const label = params.get("label") || params.get("namn") || `Delat mål ${fmtCoord(lat, lon)}`;
+    return { lat, lon, label, shared: true };
+  }
+
+  function showSharedDestinationPendingCard(place) {
+    showRouteCard();
+    el.routeTitle.textContent = shortName(place.label || "Delat mål");
+    el.routeSubtitle.textContent = "Delat mål · väntar på GPS";
+    el.routeMeta.textContent = fmtCoord(place.lat, place.lon);
+    el.nextInstruction.classList.add("hidden");
+    el.routeWarning.classList.add("hidden");
+    if (el.routeAdvancedBtn) el.routeAdvancedBtn.classList.add("hidden");
+    updateShareButtons();
+    setRouteCompactMode();
+  }
+
+  function handleSharedDestinationLink({ force = false } = {}) {
+    const hash = String(window.location.hash || "");
+    if (!force && hash === state.lastSharedDestinationHash) return false;
+
+    const place = parseSharedDestinationFromHash();
+    if (!place) return false;
+
+    state.lastSharedDestinationHash = hash;
+    state.sharedDestinationAutoRoute = true;
+
+    setDestination(place, false);
+    showSharedDestinationPendingCard(place);
+    autoMinimizeForDestination();
+
+    map.flyTo([place.lat, place.lon], Math.max(map.getZoom(), 15), { animate: true, duration: 0.35 });
+    toast("Delat mål öppnat");
+
+    if (state.userPos && !state.isRouting) {
+      state.sharedDestinationAutoRoute = false;
+      window.setTimeout(() => calculateRoute(), 180);
+    }
+
+    return true;
+  }
+
+  function updateShareButtons() {
+    if (el.shareDestinationBtn) {
+      el.shareDestinationBtn.classList.toggle("hidden", !state.destination);
+    }
+  }
+
 
   function getFavorites() {
     return storageGet("30maps:favorites", []);
@@ -560,7 +689,7 @@
     let desiredX = size.x * 0.5;
     let desiredY = Math.max(topLimit, Math.min(bottomTop - 86, size.y * 0.72));
 
-    // V5.9: smart framför-vy utan kartrotation.
+    // V6: smart framför-vy utan kartrotation.
     // Markören flyttas "bakom" färdriktningen så mer av rutten framför syns,
     // oavsett om man kör norrut, söderut, österut eller västerut.
     const progress = options.progress || getCameraRouteProgress(lat, lon);
@@ -615,7 +744,7 @@
     const targetZoom = Math.max(map.getZoom(), minZoom);
 
     // Räkna ut körläges-centrum med målzoomen och gör zoom+pan samtidigt.
-    // V5.9 använder även smart framför-vy så man ser mer åt färdriktningen.
+    // V6 använder även smart framför-vy så man ser mer åt färdriktningen.
     map.invalidateSize();
     followUserPosition(pos.lat, pos.lon, { zoom: targetZoom, setView: true });
 
@@ -728,6 +857,11 @@
       state.start.lon = lon;
     }
 
+    if (state.sharedDestinationAutoRoute && state.destination && !state.route && !state.isRouting) {
+      state.sharedDestinationAutoRoute = false;
+      window.setTimeout(() => calculateRoute(), 120);
+    }
+
     updateNavigationFromPosition();
   }
 
@@ -811,6 +945,7 @@
     placeMarker("dest", state.destination);
     addRecent(state.destination);
     updateFavoriteButton();
+    updateShareButtons();
 
     if (routeNow) {
       autoMinimizeForDestination();
@@ -2100,6 +2235,7 @@
     exitNavigationModeSilently();
 
     state.destination = null;
+    state.sharedDestinationAutoRoute = false;
     state.route = null;
     state.originalRoute = null;
     state.originalStart = null;
@@ -2135,6 +2271,7 @@
     state.destMarker = null;
     state.startMarker = null;
     state.tapPreviewMarker = null;
+    updateShareButtons();
     toast("Rensat");
     setPanelCollapsed(false, { force: true });
   }
@@ -2165,6 +2302,7 @@
     showTapPreviewMarker(lat, lon);
     el.tapCoords.textContent = fmtCoord(lat, lon);
     showUiCard(el.tapSheet);
+    updateShareButtons();
 
     const targetZoom = Math.max(map.getZoom(), 16);
     map.flyTo([lat, lon], targetZoom, { animate: true, duration: 0.35 });
@@ -2768,7 +2906,7 @@
     document.body.classList.remove("demo-active");
 
     if (el.betaBadge) {
-      el.betaBadge.textContent = "BETA · v5.9";
+      el.betaBadge.textContent = "BETA · v6";
       el.betaBadge.title = "Klicka för att dölja. Håll inne för testresa.";
     }
 
@@ -2860,6 +2998,9 @@
     el.clearRecentsBtn.addEventListener("click", clearRecents);
 
     el.favoriteDestinationBtn.addEventListener("click", () => saveFavorite(state.destination));
+    if (el.shareDestinationBtn) {
+      el.shareDestinationBtn.addEventListener("click", () => shareDestination(state.destination));
+    }
     el.startNavigationBtn.addEventListener("click", () => enterNavigationMode(true));
     el.toggleStepsBtn.addEventListener("click", showSteps);
     if (el.routeAdvancedBtn) el.routeAdvancedBtn.addEventListener("click", () => setAdvancedRouteVisible(!state.advancedRouteShown));
@@ -2887,6 +3028,13 @@
       if (!state.selectedTap) return;
       copyText(fmtCoord(state.selectedTap.lat, state.selectedTap.lon));
     });
+
+    if (el.tapShareBtn) {
+      el.tapShareBtn.addEventListener("click", () => {
+        if (!state.selectedTap) return;
+        shareDestination({ ...state.selectedTap, label: "Kartpunkt" });
+      });
+    }
 
     el.tapCloseBtn.addEventListener("click", () => {
       el.tapSheet.classList.add("hidden");
@@ -2932,7 +3080,10 @@
     initEvents();
     registerServiceWorker();
     window.addEventListener("resize", setRouteCompactMode);
+    window.addEventListener("hashchange", () => handleSharedDestinationLink({ force: true }));
     startGeolocation();
+    handleSharedDestinationLink({ force: true });
+    updateShareButtons();
     console.log(`30maps V${VERSION} loaded`);
   }
 

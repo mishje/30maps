@@ -1,31 +1,46 @@
-# 30maps A-Traktor Navigator V5.9
+# 30maps A-Traktor Navigator V6
 
 GitHub Pages-ready statisk PWA för A-traktor-navigering.
 
-## V5.9
+## V6
 
-Bygger vidare på stabila V5.8. V.ROT-experimentet är inte med.
+Bygger vidare på stabila V5.9. V.ROT-experimentet är inte med.
 
-Ny körvy:
-- Smart framför-vy utan kartrotation.
-- Kartan är fortfarande norr upp.
-- Appen räknar ut en punkt längre fram på den aktiva rutten.
-- GPS-markören placeras lite bakom färdriktningen på skärmen.
-- När man kör österut visas mer väg åt höger.
-- När man kör västerut visas mer väg åt vänster.
-- När man kör norrut visas mer väg uppåt.
-- När man kör söderut flyttas markören högre upp, men hålls ovanför nedersta navigationsrutan.
-- Om nästa sväng är flera km bort visas inte hela vägen till svängen; appen använder en begränsad framför-buffert.
-- När en sväng närmar sig får kameran kika lite längre fram, men med maxgräns så den inte zoomar/ser för långt.
-- Nära sväng blir vyn mer exakt igen.
+Nytt:
+- Start på 6-serien.
+- Ny `config.js` där appens basadress finns samlad.
+- Nuvarande basadress:
+  - `https://mishje.github.io/30maps/`
+- Om domän/sökväg ändras senare behöver `APP_BASE_URL` ändras i `config.js`.
+- Liten `↗ Dela`-knapp för mål.
+- Delning skickar bara destinationen:
+  - latitud
+  - longitud
+  - måltext/label
+- Delning skickar inte användarens GPS-position, startpunkt, vald rutt eller OSRM/bilrutt.
+- På mobil används Web Share API om det stöds.
+- Om Web Share API inte fungerar kopieras länken i stället.
+- Delade länkar öppnas via hash:
+  - `#dest=lat,lon&label=namn`
+- När en delad länk öppnas fyller appen i målet, markerar det på kartan och räknar rutt när GPS finns.
+
+Placering:
+- I ruttkortet finns en liten absolut placerad `↗ Dela`-knapp.
+- I Vald plats-rutan finns en liten `↗ Dela`-knapp.
+- Knappen är kompakt för att inte förstora rutorna mer än nödvändigt.
 
 Behåller:
+- V5.9 smart framför-vy utan kartrotation.
 - V5.8-fixen för Starta navigation från utzoomad karta.
 - V5.8-fixen för stabil “Tillbaka till körläge”-knapp.
 - V5.7-fixen för att stoppa onödig svängkortsanimation.
 - V5.6:s hårda svängkortslås.
 
+Inte gjort i denna version:
+- Ursprunglig OSRM/bilrutt sparas ännu inte över omruttning. Det är sparat som kommande fix.
+
 Cache:
-- `style.css?v=59`
-- `app.js?v=59`
-- Service worker-cache: `30maps-v59`
+- `style.css?v=6`
+- `app.js?v=6`
+- `config.js?v=6`
+- Service worker-cache: `30maps-v6`

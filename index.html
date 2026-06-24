@@ -7,15 +7,15 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="30maps">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>30maps - A-Traktor Navigator V5.9.2</title>
+  <title>30maps - A-Traktor Navigator V6.2</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="./style.css?v=59">
+  <link rel="stylesheet" href="./style.css?v=6">
 </head>
 <body>
   <div id="map"></div>
-  <div id="betaBadge" class="beta-badge">BETA · v5.9</div>
+  <div id="betaBadge" class="beta-badge">BETA · v6</div>
 
   <div id="boot" class="boot">
     <div class="boot-card">
@@ -83,6 +83,7 @@
 
   <section id="routeCard" class="route-card hidden">
     <button id="closeRouteBtn" class="route-close-btn" aria-label="Rensa rutt">×</button>
+    <button id="shareDestinationBtn" class="share-destination-btn route-share-btn hidden" type="button">↗ Dela</button>
     <div class="route-main">
       <div>
         <strong id="routeTitle">Rutt</strong>
@@ -137,6 +138,7 @@
       <button id="tapStartBtn">🏁 Sätt som start</button>
       <button id="tapFavBtn">⭐ Spara favorit</button>
       <button id="tapCopyBtn">📋 Kopiera</button>
+      <button id="tapShareBtn" class="share-destination-btn">↗ Dela</button>
       <button id="tapCloseBtn" class="secondary-btn">Stäng</button>
     </div>
   </section>
@@ -144,6 +146,7 @@
   <div id="toast" class="toast hidden"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="./app.js?v=59"></script>
+  <script src="./config.js?v=6"></script>
+  <script src="./app.js?v=6"></script>
 </body>
 </html>

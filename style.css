@@ -1125,3 +1125,54 @@ body.demo-active .beta-badge{
 .resume-follow-btn.hidden{
   display:none!important;
 }
+
+
+/* =========================
+   V6: liten Dela mål-knapp
+   ========================= */
+
+.share-destination-btn{
+  min-height:34px!important;
+  padding:0 10px!important;
+  border-radius:999px!important;
+  font-size:13px!important;
+  font-weight:900!important;
+  white-space:nowrap;
+  background:rgba(255,255,255,.88);
+  border:1px solid rgba(17,24,39,.14);
+  box-shadow:0 6px 20px rgba(0,0,0,.10);
+}
+
+.route-share-btn{
+  position:absolute;
+  z-index:3;
+  top:14px;
+  right:58px;
+  min-width:70px;
+}
+
+.route-card .route-main{
+  padding-right:122px;
+}
+
+.tap-sheet{
+  padding-top:16px;
+}
+
+.tap-sheet .share-destination-btn{
+  min-height:40px!important;
+}
+
+body.dark .share-destination-btn{
+  background:rgba(31,41,55,.9);
+  color:#f5f7fb;
+  border-color:rgba(255,255,255,.18);
+}
+
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard .route-share-btn{
+  top:12px;
+  right:56px;
+}
+body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard .route-main{
+  padding-right:120px!important;
+}

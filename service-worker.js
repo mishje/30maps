@@ -1,9 +1,10 @@
-const CACHE_NAME = "30maps-v59";
+const CACHE_NAME = "30maps-v6";
 const ASSETS = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
+  "./config.js",
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png"
