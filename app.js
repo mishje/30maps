@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "6";
+  const VERSION = "6.1";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
@@ -128,6 +128,7 @@
     realUserHeading: null,
     originalRoute: null,
     originalStart: null,
+    originalCarRouteCoords: null,
     beforeTapPickView: null,
     navDisplayedStepKey: "",
     navVisibleInstructionSig: "",
@@ -142,6 +143,7 @@
     navStepAnimationSeq: 0,
     resumeFollowHideTimer: null,
     sharedDestinationAutoRoute: false,
+    sharedDestinationOpened: false,
     lastSharedDestinationHash: ""
   };
 
@@ -252,7 +254,14 @@
     el.boot.classList.add("fade");
     setTimeout(() => el.boot.classList.add("hidden"), 480);
     showUiCard(el.panel);
-    setPanelCollapsed(false, { force: true });
+
+    if (state.sharedDestinationOpened && !isDesktopLayout()) {
+      setPanelCollapsed(true, { force: true });
+      window.setTimeout(() => setPanelCollapsed(true, { force: true }), 220);
+    } else {
+      setPanelCollapsed(false, { force: true });
+    }
+
     setTimeout(() => map.invalidateSize(), 140);
   }
 
@@ -421,10 +430,17 @@
 
     state.lastSharedDestinationHash = hash;
     state.sharedDestinationAutoRoute = true;
+    state.sharedDestinationOpened = true;
 
     setDestination(place, false);
     showSharedDestinationPendingCard(place);
-    autoMinimizeForDestination();
+    if (!isDesktopLayout()) {
+      setPanelCollapsed(true, { force: true });
+      window.setTimeout(() => setPanelCollapsed(true, { force: true }), 260);
+      window.setTimeout(() => setPanelCollapsed(true, { force: true }), 850);
+    } else {
+      setRouteCompactMode();
+    }
 
     map.flyTo([place.lat, place.lon], Math.max(map.getZoom(), 15), { animate: true, duration: 0.35 });
     toast("Delat mål öppnat");
@@ -924,6 +940,7 @@
   function setDestination(place, routeNow = true) {
     state.originalRoute = null;
     state.originalStart = null;
+    state.originalCarRouteCoords = null;
     state.arrivedHandled = false;
     state.destination = {
       lat: Number(place.lat),
@@ -1074,13 +1091,22 @@
 
       // Avancerad jämförelse:
       // Spara blå bilrutt, men visa den inte förrän användaren öppnar avancerad info.
-      if (result.osrmCar && result.osrmCar.coords && result.osrmCar.coords.length) {
-        state.carRouteCoords = result.osrmCar.coords;
-      } else if (result.carLike && result.carLike.coords && result.carLike.coords.length) {
-        state.carRouteCoords = result.carLike.coords;
-      } else {
-        state.carRouteCoords = null;
+      // V6.1: den ursprungliga OSRM/bilrutten sparas separat så den inte tappas vid omruttning.
+      const currentCarRouteCoords =
+        result.osrmCar && result.osrmCar.coords && result.osrmCar.coords.length
+          ? result.osrmCar.coords
+          : result.carLike && result.carLike.coords && result.carLike.coords.length
+            ? result.carLike.coords
+            : null;
+
+      state.carRouteCoords = currentCarRouteCoords;
+
+      if (!options.reroute || !state.originalCarRouteCoords) {
+        state.originalCarRouteCoords = currentCarRouteCoords
+          ? currentCarRouteCoords.map(c => Array.isArray(c) ? [c[0], c[1]] : c)
+          : null;
       }
+
       drawCarRoute(null);
 
       drawRoute(route.coords);
@@ -1655,9 +1681,17 @@
     if (!original || !original.coords || !original.coords.length) return;
 
     state.route = cloneRoute(original);
+    state.carRouteCoords = state.originalCarRouteCoords
+      ? state.originalCarRouteCoords.map(c => Array.isArray(c) ? [c[0], c[1]] : c)
+      : state.carRouteCoords;
     state.lastRemainingRouteIndex = -1;
     clearDrivenRoute();
     drawRoute(state.route.coords);
+    if (state.advancedRouteShown && state.carRouteCoords && state.carRouteCoords.length) {
+      drawCarRoute(state.carRouteCoords);
+    } else {
+      drawCarRoute(null);
+    }
     updateStepsUI();
 
     const km = ((state.route.distance || 0) / 1000).toFixed(1);
@@ -2236,9 +2270,11 @@
 
     state.destination = null;
     state.sharedDestinationAutoRoute = false;
+    state.sharedDestinationOpened = false;
     state.route = null;
     state.originalRoute = null;
     state.originalStart = null;
+    state.originalCarRouteCoords = null;
     state.beforeTapPickView = null;
     state.navDisplayedStepKey = "";
     state.navVisibleInstructionSig = "";
@@ -2906,7 +2942,7 @@
     document.body.classList.remove("demo-active");
 
     if (el.betaBadge) {
-      el.betaBadge.textContent = "BETA · v6";
+      el.betaBadge.textContent = "BETA · v6.1.1";
       el.betaBadge.title = "Klicka för att dölja. Håll inne för testresa.";
     }
 
