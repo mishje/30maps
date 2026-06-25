@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "6.2";
+  const VERSION = "6.2.1";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
@@ -1268,7 +1268,7 @@
       const km = (route.distance / 1000).toFixed(1);
       const eta = etaFromMeters(route.distance);
       el.routeTitle.textContent = shortName(dest.label);
-      el.routeSubtitle.textContent = `${result.chosen.summary || result.chosen.name} · A-traktor, 30 km/h`;
+      el.routeSubtitle.textContent = `${result.chosen.summary || result.chosen.name} · 30 km/h`;
       setRouteMeta(`${km} km · ${eta}`, route.distance);
 
       updateStepsUI();
@@ -1702,7 +1702,7 @@
 
 
   function basicRouteSafetyText() {
-    return "Motorvägar och motortrafikleder är kraftigt nedprioriterade. Kontrollera alltid skyltning.";
+    return "⚠ Motorvägar/motortrafikleder nedprioriterade. Kontrollera skyltning.";
   }
 
   function setRouteInfoText(basicText, advancedText) {
@@ -1722,7 +1722,7 @@
 
     if (el.routeAdvancedBtn) {
       el.routeAdvancedBtn.classList.toggle("hidden", !state.advancedRouteInfo);
-      el.routeAdvancedBtn.textContent = state.advancedRouteShown ? "Dölj avancerat och blå bilrutt" : "Visa avancerat och blå bilrutt";
+      el.routeAdvancedBtn.textContent = state.advancedRouteShown ? "Dölj avancerat" : "Visa avancerat och bilrutt";
       el.routeAdvancedBtn.setAttribute("aria-expanded", state.advancedRouteShown ? "true" : "false");
     }
 
@@ -3199,7 +3199,7 @@
     document.body.classList.remove("demo-active");
 
     if (el.betaBadge) {
-      el.betaBadge.textContent = "BETA · v6.2.1";
+      el.betaBadge.textContent = "BETA · v6.2.1.1.1";
       el.betaBadge.title = "Klicka för att dölja. Håll inne för testresa.";
     }
 
