@@ -7,15 +7,15 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="30maps">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>30maps - A-Traktor Navigator V6.4</title>
+  <title>30maps - A-Traktor Navigator V6.6.7</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="./style.css?v=64">
+  <link rel="stylesheet" href="./style.css?v=667">
 </head>
 <body>
   <div id="map"></div>
-  <div id="betaBadge" class="beta-badge">BETA · v6.4</div>
+  <div id="betaBadge" class="beta-badge">BETA · v6.6.7</div>
 
   <div id="boot" class="boot">
     <div class="boot-card">
@@ -151,6 +151,17 @@
     </div>
 
     <div class="settings-block">
+      <strong>🧭 Kartläge</strong>
+      <p>I körning används Smart körvy som säkert standardläge. Färdriktning uppåt är beta och kan stängas av direkt om den känns ostabil.</p>
+
+      <label for="mapModeSelect">Kartläge</label>
+      <select id="mapModeSelect">
+        <option value="smart">Smart körvy</option>
+        <option value="heading">Färdriktning uppåt (beta)</option>
+      </select>
+    </div>
+
+    <div class="settings-block">
       <strong>⛽ Bränsle</strong>
       <p>Fyll i medelförbrukning för att visa ungefärlig bränsleåtgång och kostnad i ruttkortet.</p>
 
@@ -184,7 +195,8 @@
   <div id="toast" class="toast hidden"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="./config.js?v=64"></script>
-  <script src="./app.js?v=64"></script>
+  <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
+  <script src="./config.js?v=667"></script>
+  <script src="./app.js?v=667"></script>
 </body>
 </html>

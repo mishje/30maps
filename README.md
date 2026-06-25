@@ -1,28 +1,31 @@
-# 30maps A-Traktor Navigator V6.4
+# 30maps A-Traktor Navigator V6.6.7
 
 GitHub Pages-ready statisk PWA för A-traktor-navigering.
 
-## V6.4
+## V6.6.7
 
-Bygger vidare på V6.3.1.
+Bygger vidare på V6.6.6.
 
-Nytt/fix:
-- Stegrutan är mindre på telefon under aktiv navigation.
-- Vid många steg visas ungefär 1–4 steg åt gången och resten scrollas.
-- Stegrutan ligger fortsatt precis ovanför nedersta “km kvar”-kortet.
-- “Tillbaka till körläge” hamnar fortsatt ovanför stegrutan när stegrutan är öppen.
-- Smart körvy beta:
-  - fordonspilens riktning hämtas i första hand från rutten framför bilen när navigation är aktiv
-  - GPS-heading används som fallback
-  - rörelse mellan GPS-punkter används som sista fallback
-  - riktningen mjukas ut för att minska ryck
-- Förbättringarna är gjorda så de fungerar i både Cockpit och Klassisk design.
+Fixar:
+- Heading-up roterar mjukare när den väl roterar.
+- Kartans target-bearing och faktisk map-bearing separeras.
+- `requestAnimationFrame` används för att glida kartans bearing mot target i små steg.
+- Rotationens hastighet är adaptiv:
+  - små ändringar glider lugnare
+  - större riktningsändringar får komma ikapp snabbare men utan hopp
+- Route-corridor från V6.6.6 behålls.
+- Smart körvy påverkas inte.
 
-Viktigt:
-- Detta är inte full kartrotation/färdriktning-uppåt ännu. Kartan är fortfarande stabil nord-upp, men fordonspilen och körvyn använder en smartare färdriktning.
+Behåller:
+- V6.6.6: route-corridor för att ignorera små böjar som går tillbaka.
+- V6.6.4: GPS-markören ligger längre ner i heading-up.
+- V6.6.3: korrekt/inverterad bearing.
+- V6.6.2: riktig Leaflet-rotation via `leaflet-rotate`.
+- Kartlägen: Smart körvy och Färdriktning uppåt (beta).
+- Cockpit och Klassisk design stöds.
 
 Cache:
-- `style.css?v=64`
-- `app.js?v=64`
-- `config.js?v=64`
-- Service worker-cache: `30maps-v64`
+- `style.css?v=667`
+- `app.js?v=667`
+- `config.js?v=667`
+- Service worker-cache: `30maps-v667`

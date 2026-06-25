@@ -1,5 +1,75 @@
 # 30maps versionshistorik
 
+## V6.6.7
+- Gör heading-up-rotationen mjukare när kartan väl roterar.
+- Separera target-bearing från faktisk map-bearing.
+- Använd `requestAnimationFrame` för att glida kartans bearing mot target i små steg.
+- Lägg adaptiv rotationshastighet: små ändringar blir lugnare och större riktningsändringar kommer ikapp utan hopp.
+- Behåll route-corridor från V6.6.6.
+- Smart körvy påverkas inte.
+
+## V6.6.6
+- Minimera sök/favoritkortet på telefon när mål är klart/framme och den ursprungliga rutten visas igen.
+- Inför route-corridor för heading-up: flera punkter framför bilen används för att avgöra övergripande färdriktning.
+- Små böjar som går tillbaka ignoreras oftare, så kartan inte roterar fram och tillbaka i onödan.
+- Justera deadband och max rotationshastighet för mindre hack.
+- Smart körvy påverkas inte.
+
+## V6.6.5
+- Gör heading-up mjukare när vägen svänger.
+- Jämna ut route-bearing med flera lookahead-punkter längs rutten.
+- Lägg låg deadband så små jitter inte roterar kartan.
+- Begränsa max rotationshastighet så kartan glider runt i stället för att hoppa.
+- Gör heading-up-autozoom lugnare och mer sällan ändrad.
+- Smart körvy påverkas inte.
+
+## V6.6.4
+- Placera GPS-markören längre ner på telefon i Färdriktning uppåt (beta).
+- Flytta heading-up-kamerans centrum framåt i färdriktningen så mer väg syns framför fordonet.
+- Mjuka ut bearing-uppdateringar genom att ignorera små ändringar och throttla rotationen.
+- Gör heading-up-autozoom lugnare med mindre zoomsteg och högre tröskel innan zoom ändras.
+- Smart körvy påverkas inte.
+
+## V6.6.3
+- Korrigera bearing-riktningen i Färdriktning uppåt (beta) genom att invertera bearing-vinkeln som skickas till `leaflet-rotate`.
+- Fordonspilen låses bara rakt upp när kartans bearing faktiskt har applicerats.
+- Om kartrotationen inte fungerar fortsätter pilen visa verklig färdriktning i stället för att peka fel.
+- Smart körvy påverkas inte.
+
+## V6.6.2
+- Ta bort den egna CSS-rotationen av `leaflet-map-pane`.
+- Lägg till `leaflet-rotate` som riktig Leaflet-rotation för Färdriktning uppåt (beta).
+- Använd `map.setBearing(...)` när rotationsstödet finns.
+- Om rotationsstödet inte laddas faller appen tillbaka till Smart körvy i stället för att visa trasig roterad karta.
+- Heading-up centrerar direkt på GPS-positionen när riktig Leaflet-rotation är aktiv.
+- Fordonspilen hålls uppåt i heading-up för att undvika dubbelrotation.
+- Grå/tomma hörn från CSS-rotationen ska försvinna.
+
+## V6.6.1
+- Fixa heading-up-rotationens centrum genom att sätta transform-origin dynamiskt till viewportens mitt i Leaflet-pane-koordinater.
+- Lägg extra scale på kartlagret i heading-up för att undvika grå/tomma hörn vid rotation.
+- Förenkla heading-up-kameran så GPS-markören ligger mer stabilt nära nedre/mellersta körpositionen.
+- Uppdatera rotationens origin när Leaflet panorerar/zoomar kartan.
+- Behåll Smart körvy och Färdriktning uppåt (beta) som enda kartlägen.
+
+## V6.6
+- Ta bort kartläget “Nord upp” från Inställningar.
+- Körläge använder nu Smart körvy eller valbart Färdriktning uppåt (beta).
+- Gamla sparade `north`-val migreras till Smart körvy.
+- Heading-up centreras bättre på GPS-markören.
+- Kameran kompenserar för kartrotation när GPS-markörens skärmposition räknas ut.
+- Heading-up får egen enkel autozoom: mer överblick på raksträcka/off-route och lite mer inzoomning nära sväng.
+- Ändringarna fungerar i både Cockpit och Klassisk design.
+
+## V6.5
+- Lägg till kartläge i Inställningar: Nord upp, Smart körvy och Färdriktning uppåt (beta).
+- Standardkartläge är Smart körvy.
+- Färdriktning uppåt beta roterar kartan efter beräknad färdriktning när navigation och följläge är aktivt.
+- Kartrotation stängs av när navigation inte är aktiv.
+- När man är framme stoppas följning av GPS och kartan fitBounds:as på den visade ursprungliga rutten.
+- Vid felkörning/off-route byter fordonspilen till GPS-heading/rörelseriktning i stället för planerad ruttriktning.
+- Kartläge-inställningen fungerar i både Cockpit och Klassisk design.
+
 ## V6.4
 - Stegrutan görs mindre på telefon under aktiv navigation.
 - Vid många steg visas ungefär 1–4 steg åt gången; resten scrollas.

@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "6.4";
+  const VERSION = "6.6.7";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
@@ -72,6 +72,7 @@
     settingsSheet: document.getElementById("settingsSheet"),
     closeSettingsBtn: document.getElementById("closeSettingsBtn"),
     designModeSelect: document.getElementById("designModeSelect"),
+    mapModeSelect: document.getElementById("mapModeSelect"),
     fuelConsumptionInput: document.getElementById("fuelConsumptionInput"),
     fuelPriceInput: document.getElementById("fuelPriceInput"),
     saveFuelSettingsBtn: document.getElementById("saveFuelSettingsBtn"),
@@ -95,6 +96,8 @@
     userHeading: null,
     gpsHeading: null,
     displayHeading: null,
+    headingTarget: null,
+    lastCorridorHeading: null,
     follow: true,
     panelCollapsed: false,
     navigating: false,
@@ -156,6 +159,14 @@
     highlightedStepIndex: -1,
     fuelSettings: { consumptionLPerMil: 0, pricePerLiter: 0 },
     designMode: "cockpit",
+    mapMode: "smart",
+    mapRotation: 0,
+    targetMapRotation: 0,
+    mapRotationAnimFrame: null,
+    lastMapRotationFrameAt: 0,
+    mapBearingApplied: false,
+    lastMapRotationAt: 0,
+    lastHeadingUpdateAt: 0,
     routeMetaPrimary: "",
     routeMetaFuel: "",
     routeMetaCycleTimer: null,
@@ -167,7 +178,11 @@
 
   const map = L.map("map", {
     zoomControl: false,
-    attributionControl: true
+    attributionControl: true,
+    rotate: true,
+    touchRotate: false,
+    rotateControl: false,
+    bearing: 0
   }).setView(DEFAULT_VIEW, 10);
 
   L.control.zoom({ position: "bottomright" }).addTo(map);
@@ -329,6 +344,181 @@
     toast(normalized === "classic" ? "Klassisk design vald" : "30maps Cockpit vald");
   }
 
+  function normalizeMapMode(value) {
+    // V6.6: Nord upp är borttaget som val. Gamla sparade "north" migreras till Smart körvy.
+    return value === "heading" ? "heading" : "smart";
+  }
+
+  function mapModeLabel(mode) {
+    if (mode === "heading") return "Färdriktning uppåt beta";
+    return "Smart körvy";
+  }
+
+  function applyMapMode(mode) {
+    state.mapMode = normalizeMapMode(mode);
+    document.body.classList.toggle("map-mode-smart", state.mapMode === "smart");
+    document.body.classList.toggle("map-mode-heading", state.mapMode === "heading");
+
+    if (el.mapModeSelect) {
+      el.mapModeSelect.value = state.mapMode;
+    }
+
+    if (map) map.invalidateSize();
+    updateMapRotation(true);
+
+    if (state.follow && state.userPos) {
+      window.setTimeout(() => followUserPosition(state.userPos.lat, state.userPos.lon, { duration: 0.2 }), 40);
+    }
+  }
+
+  function loadMapMode() {
+    // Standard är säkra Smart körvy. Äkta heading-up är valbar beta.
+    applyMapMode(normalizeMapMode(storageGet("30maps:mapMode", "smart")));
+  }
+
+  function saveMapMode(mode) {
+    const normalized = normalizeMapMode(mode);
+    storageSet("30maps:mapMode", normalized);
+    applyMapMode(normalized);
+    if (normalized === "heading" && !hasNativeMapRotation()) {
+      toast("Heading-up kunde inte laddas, Smart körvy används");
+    } else {
+      toast(`${mapModeLabel(normalized)} vald`);
+    }
+  }
+
+  function hasNativeMapRotation() {
+    return Boolean(map && typeof map.setBearing === "function");
+  }
+
+  function shouldRotateMap() {
+    return (
+      state.mapMode === "heading" &&
+      hasNativeMapRotation() &&
+      state.navigating &&
+      state.follow &&
+      !state.arrivedHandled &&
+      Number.isFinite(state.displayHeading)
+    );
+  }
+
+  function applyNativeMapBearing(value, active = shouldRotateMap()) {
+    const nativeRotation = hasNativeMapRotation();
+    state.mapBearingApplied = false;
+
+    if (nativeRotation) {
+      try {
+        map.setBearing(normalizeHeading(value || 0) || 0);
+        state.mapBearingApplied = Boolean(active);
+      } catch (err) {
+        console.warn("Heading-up rotation failed", err);
+      }
+    }
+
+    document.documentElement.style.setProperty("--map-rotation", "0deg");
+    document.documentElement.style.setProperty("--map-marker-counter", "0deg");
+    document.documentElement.style.setProperty("--heading-up-scale", "1");
+    document.body.classList.toggle("heading-up-active", Boolean(active && state.mapBearingApplied));
+    document.body.classList.toggle("heading-up-fallback", state.mapMode === "heading" && (!nativeRotation || !state.mapBearingApplied));
+  }
+
+  function stopMapRotationAnimation() {
+    if (state.mapRotationAnimFrame) {
+      cancelAnimationFrame(state.mapRotationAnimFrame);
+      state.mapRotationAnimFrame = null;
+    }
+    state.lastMapRotationFrameAt = 0;
+  }
+
+  function animateMapRotationFrame(timestamp) {
+    state.mapRotationAnimFrame = null;
+
+    const active = shouldRotateMap();
+    const nativeRotation = hasNativeMapRotation();
+
+    if (!active || !nativeRotation) {
+      state.mapRotation = 0;
+      state.targetMapRotation = 0;
+      applyNativeMapBearing(0, false);
+      state.lastMapRotationFrameAt = 0;
+      return;
+    }
+
+    const now = Number.isFinite(timestamp) ? timestamp : (performance && performance.now ? performance.now() : Date.now());
+    const elapsed = state.lastMapRotationFrameAt ? Math.max(16, now - state.lastMapRotationFrameAt) : 16;
+    state.lastMapRotationFrameAt = now;
+
+    const current = normalizeHeading(state.mapRotation || 0) || 0;
+    const target = normalizeHeading(state.targetMapRotation || 0) || 0;
+    const delta = headingDelta(current, target);
+    const absDelta = Math.abs(delta);
+
+    if (absDelta < 0.18) {
+      state.mapRotation = target;
+      applyNativeMapBearing(state.mapRotation, true);
+      return;
+    }
+
+    // Adaptiv rotationshastighet: små svängar glider lugnt, större riktningsbyte
+    // får komma ikapp snabbare men utan synliga hopp.
+    const maxDegPerSec = clamp(22 + absDelta * 1.55, 26, 54);
+    const maxStep = Math.max(0.45, maxDegPerSec * (elapsed / 1000));
+    const easedStep = Math.min(absDelta, Math.max(maxStep, absDelta * 0.105));
+    const next = normalizeHeading(current + Math.sign(delta) * easedStep);
+
+    state.mapRotation = next || 0;
+    applyNativeMapBearing(state.mapRotation, true);
+
+    state.mapRotationAnimFrame = requestAnimationFrame(animateMapRotationFrame);
+  }
+
+  function startMapRotationAnimation() {
+    if (state.mapRotationAnimFrame) return;
+    state.mapRotationAnimFrame = requestAnimationFrame(animateMapRotationFrame);
+  }
+
+  function updateHeadingUpMapOrigin() {
+    // V6.6.2: gammal CSS-rotation är borttagen. Funktionen finns kvar som no-op
+    // för äldre event hooks.
+  }
+
+  function updateMapRotation(force = false) {
+    const nativeRotation = hasNativeMapRotation();
+    const active = shouldRotateMap();
+
+    // leaflet-rotate använder motsatt tecken jämfört med vår GPS/bearing-vinkel:
+    // för att färdriktningen ska hamna uppåt måste kartans bearing inverteras.
+    const target = active ? (normalizeHeading(-(state.displayHeading || 0)) || 0) : 0;
+    const current = normalizeHeading(state.mapRotation || 0) || 0;
+    const delta = Math.abs(headingDelta(current, target));
+    const now = performance && performance.now ? performance.now() : Date.now();
+
+    if (!active || !nativeRotation) {
+      state.targetMapRotation = 0;
+      stopMapRotationAnimation();
+      state.mapRotation = 0;
+      applyNativeMapBearing(0, false);
+      return;
+    }
+
+    // V6.6.7: route-corridor bestämmer target-bearing. Själva kartan glider
+    // mot target via requestAnimationFrame så rotationen inte sker i steg.
+    if (!force && delta < 1.0) return;
+    if (!force && now - (state.lastMapRotationAt || 0) < 90) return;
+
+    state.targetMapRotation = target;
+    state.lastMapRotationAt = now;
+
+    if (force) {
+      state.mapRotation = target;
+      state.lastMapRotationFrameAt = 0;
+      applyNativeMapBearing(state.mapRotation, true);
+      return;
+    }
+
+    startMapRotationAnimation();
+  }
+
   function loadFuelSettings() {
     const saved = storageGet("30maps:fuelSettings", {});
     state.fuelSettings = {
@@ -348,6 +538,10 @@
   function renderSettingsForm() {
     if (el.designModeSelect) {
       el.designModeSelect.value = state.designMode || "cockpit";
+    }
+
+    if (el.mapModeSelect) {
+      el.mapModeSelect.value = state.mapMode || "smart";
     }
 
     if (!el.fuelConsumptionInput || !el.fuelPriceInput) return;
@@ -526,6 +720,107 @@
     return normalizeHeading(Math.atan2(y, x) * 180 / Math.PI);
   }
 
+  function weightedAverageHeading(headings) {
+    if (!headings || !headings.length) return null;
+
+    let x = 0;
+    let y = 0;
+    let total = 0;
+
+    headings.forEach(item => {
+      const heading = normalizeHeading(item.heading);
+      const weight = Number(item.weight) > 0 ? Number(item.weight) : 1;
+      if (heading === null) return;
+      const rad = heading * Math.PI / 180;
+      x += Math.sin(rad) * weight;
+      y += Math.cos(rad) * weight;
+      total += weight;
+    });
+
+    if (!total || Math.hypot(x, y) < 0.001) return null;
+    return normalizeHeading(Math.atan2(x, y) * 180 / Math.PI);
+  }
+
+  function smoothRouteBearingAhead(progress) {
+    if (!progress || progress.offRouteDistance > OFF_ROUTE_METERS) return null;
+
+    const base = progress.point
+      ? { lat: progress.point[0], lon: progress.point[1] }
+      : null;
+    if (!base) return null;
+
+    // V6.6.6: route corridor. I stället för att följa varje liten krök tittar vi
+    // på flera punkter framför fordonet och avgör om hela korridoren faktiskt
+    // byter riktning. Små svängar som snart går tillbaka ska inte få kartan att jaga.
+    const samples = [
+      { meters: 32, weight: 0.70 },
+      { meters: 62, weight: 1.00 },
+      { meters: 105, weight: 1.45 },
+      { meters: 155, weight: 1.20 },
+      { meters: 210, weight: 0.75 }
+    ];
+
+    const headings = [];
+    for (const s of samples) {
+      const point = routePointAtDistanceAlong(progress.distanceAlong + s.meters);
+      if (!point) continue;
+      const b = bearingBetween(base, point);
+      if (b === null) continue;
+      headings.push({ heading: b, weight: s.weight, meters: s.meters });
+    }
+
+    if (!headings.length) return null;
+
+    const avg = weightedAverageHeading(headings);
+    if (avg === null) return null;
+
+    const short = headings[0]?.heading ?? avg;
+    const mid = headings[Math.min(2, headings.length - 1)]?.heading ?? avg;
+    const long = headings[headings.length - 1]?.heading ?? avg;
+    const current = normalizeHeading(state.displayHeading);
+    const previous = normalizeHeading(state.lastCorridorHeading);
+    const spread = Math.max(
+      Math.abs(headingDelta(short, mid)),
+      Math.abs(headingDelta(mid, long)),
+      Math.abs(headingDelta(short, long))
+    );
+
+    const corridorDelta = current === null ? 999 : Math.abs(headingDelta(current, avg));
+    const longDelta = current === null ? 999 : Math.abs(headingDelta(current, long));
+    const returnsBack = Math.abs(headingDelta(short, long)) < 7 && Math.abs(headingDelta(short, mid)) > 8;
+
+    // Om vägen gör en liten böj men sedan fortsätter ungefär i samma riktning:
+    // håll kvar nuvarande heading. Det är detta som minskar hack i S-kurvor.
+    if (current !== null && returnsBack && corridorDelta < 18) {
+      return current;
+    }
+
+    // Om korridoren spretar mycket, men slutriktningen inte skiljer sig tydligt:
+    // håll eller blanda mot lång/mellan-heading i stället för att följa korta krökar.
+    if (current !== null && spread > 18 && longDelta < 12) {
+      return current;
+    }
+
+    // I krokig korridor: föredra den långsiktiga riktningen och blanda försiktigt.
+    let result = avg;
+    if (spread > 14) {
+      const longWeighted = weightedAverageHeading([
+        { heading: mid, weight: 0.85 },
+        { heading: long, weight: 1.45 },
+        { heading: avg, weight: 0.70 }
+      ]);
+      if (longWeighted !== null) result = longWeighted;
+    }
+
+    // Hysteres mot senaste stabila corridor-heading, så den inte flippar fram/tillbaka.
+    if (previous !== null && Math.abs(headingDelta(previous, result)) < 5.5) {
+      result = previous;
+    }
+
+    state.lastCorridorHeading = result;
+    return result;
+  }
+
   function smoothHeading(current, target, factor = 0.34) {
     const normalizedTarget = normalizeHeading(target);
     if (normalizedTarget === null) return current;
@@ -538,7 +833,12 @@
     if (!state.navigating || !state.route || !state.route.coords || state.route.coords.length < 2) return null;
 
     const progress = getCameraRouteProgress(lat, lon);
-    if (!progress || progress.offRouteDistance > OFF_ROUTE_METERS * 2.5) return null;
+    // Vid felkörning/off-route ska pilen visa verklig färdriktning, inte vägen man skulle kört.
+    if (!progress || progress.offRouteDistance > OFF_ROUTE_METERS) return null;
+
+    // V6.6.6: använd route-corridor så små böjar som går tillbaka inte roterar kartan.
+    const smoothed = smoothRouteBearingAhead(progress);
+    if (smoothed !== null) return smoothed;
 
     const base = progress.point
       ? { lat: progress.point[0], lon: progress.point[1] }
@@ -562,9 +862,41 @@
 
     if (target === null) return;
 
-    const factor = routeHeading !== null ? 0.42 : 0.30;
-    state.displayHeading = smoothHeading(state.displayHeading, target, factor);
+    const now = performance && performance.now ? performance.now() : Date.now();
+    const elapsedMs = state.lastHeadingUpdateAt ? Math.max(16, now - state.lastHeadingUpdateAt) : 180;
+    state.lastHeadingUpdateAt = now;
+
+    const current = normalizeHeading(state.displayHeading);
+    const normalizedTarget = normalizeHeading(target);
+    if (normalizedTarget === null) return;
+
+    // V6.6.5: låg deadband. Vägen ska fortfarande ligga uppåt, men små jitter
+    // i ruttens geometri ska inte ge synliga ryck.
+    if (current !== null && Math.abs(headingDelta(current, normalizedTarget)) < 2.8) {
+      state.headingTarget = normalizedTarget;
+      return;
+    }
+
+    state.headingTarget = normalizedTarget;
+
+    const maxDegPerSec = routeHeading !== null ? 34 : 46;
+    const maxStep = Math.max(1.2, maxDegPerSec * (elapsedMs / 1000));
+    const delta = current === null ? 0 : headingDelta(current, normalizedTarget);
+
+    let next;
+    if (current === null) {
+      next = normalizedTarget;
+    } else if (Math.abs(delta) <= maxStep) {
+      next = normalizedTarget;
+    } else {
+      next = normalizeHeading(current + Math.sign(delta) * maxStep);
+    }
+
+    // Lätt extra smoothing efter maxhastigheten så kurvor inte känns hackiga.
+    const blend = routeHeading !== null ? 0.64 : 0.76;
+    state.displayHeading = current === null ? next : smoothHeading(current, next, blend);
     state.userHeading = state.displayHeading;
+    updateMapRotation(false);
   }
 
   function storageGet(key, fallback) {
@@ -814,7 +1146,9 @@
   }
 
   function makeUserIcon() {
-    const heading = normalizeHeading(state.displayHeading ?? state.userHeading ?? 0) ?? 0;
+    const heading = (shouldRotateMap() && state.mapBearingApplied)
+      ? 0
+      : (normalizeHeading(state.displayHeading ?? state.userHeading ?? 0) ?? 0);
     const smart = state.navigating && state.route ? " smart-heading" : "";
     return L.divIcon({
       className: "",
@@ -944,10 +1278,63 @@
     return null;
   }
 
+  function getHeadingUpTargetZoom(lat, lon, progress = null) {
+    const p = progress || getCameraRouteProgress(lat, lon);
+    const current = Number.isFinite(map.getZoom()) ? map.getZoom() : DRIVE_START_ZOOM_MOBILE;
+
+    if (!state.navigating || state.mapMode !== "heading") {
+      return current;
+    }
+
+    const mobile = !isDesktopLayout();
+    let target = mobile ? 16.7 : 16.0;
+
+    if (p && p.offRouteDistance > OFF_ROUTE_METERS) {
+      // Vid felkörning: lite mer överblick tills ny rutt räknats fram.
+      target = mobile ? 16.3 : 15.7;
+    } else if (p) {
+      const toTurn = nextCameraInstructionDistance(p.distanceAlong);
+
+      if (Number.isFinite(toTurn) && toTurn <= 85) {
+        target = mobile ? 17.25 : 16.55;
+      } else if (Number.isFinite(toTurn) && toTurn <= 220) {
+        target = mobile ? 16.95 : 16.25;
+      } else if (Number.isFinite(toTurn) && toTurn >= 900) {
+        target = mobile ? 16.55 : 15.9;
+      }
+    }
+
+    // Undvik stora plötsliga hopp, men låt heading-up få egen zoom jämfört med Smart körvy.
+    const maxStep = 0.12;
+    return clamp(target, current - maxStep, current + maxStep);
+  }
+
   function getFollowTargetCenter(lat, lon, zoom = map.getZoom(), options = {}) {
     if (!state.navigating || isDesktopLayout()) return L.latLng(lat, lon);
 
     const size = map.getSize();
+
+    // V6.6.4: med riktig Leaflet-bearing placerar vi GPS-markören längre ner
+    // genom att flytta kamerans centrum framåt i färdriktningen. Det ger mer väg
+    // framför fordonet utan att återinföra den gamla CSS-pane-rotationen.
+    if (state.mapMode === "heading" && hasNativeMapRotation()) {
+      const navTopRect = el.navTop && !el.navTop.classList.contains("hidden") ? el.navTop.getBoundingClientRect() : null;
+      const navBottomRect = el.navBottom && !el.navBottom.classList.contains("hidden") ? el.navBottom.getBoundingClientRect() : null;
+      const topLimit = navTopRect ? navTopRect.bottom + 74 : size.y * 0.18;
+      const bottomTop = navBottomRect ? navBottomRect.top : size.y - 105;
+      const desiredY = clamp(size.y * 0.70, topLimit + 62, bottomTop - 88);
+      const screenOffsetY = Math.max(0, desiredY - size.y / 2);
+
+      const heading = normalizeHeading(state.displayHeading ?? state.userHeading ?? 0) ?? 0;
+      const rad = heading * Math.PI / 180;
+      const projected = map.project([lat, lon], zoom);
+
+      return map.unproject(L.point(
+        projected.x + Math.sin(rad) * screenOffsetY,
+        projected.y - Math.cos(rad) * screenOffsetY
+      ), zoom);
+    }
+
     const navTopRect = el.navTop && !el.navTop.classList.contains("hidden") ? el.navTop.getBoundingClientRect() : null;
     const navBottomRect = el.navBottom && !el.navBottom.classList.contains("hidden") ? el.navBottom.getBoundingClientRect() : null;
 
@@ -958,9 +1345,7 @@
     let desiredX = size.x * 0.5;
     let desiredY = Math.max(topLimit, Math.min(bottomTop - 86, size.y * 0.72));
 
-    // V6: smart framför-vy utan kartrotation.
-    // Markören flyttas "bakom" färdriktningen så mer av rutten framför syns,
-    // oavsett om man kör norrut, söderut, österut eller västerut.
+    // Smart körvy, eller fallback om heading-up-plugin saknas.
     const progress = options.progress || getCameraRouteProgress(lat, lon);
     const ahead = getCameraAheadVector(lat, lon, zoom, progress);
 
@@ -993,10 +1378,20 @@
   function followUserPosition(lat, lon, options = {}) {
     if (!state.follow) return;
 
-    const zoom = options.zoom ?? map.getZoom();
-    const targetCenter = getFollowTargetCenter(lat, lon, zoom, options);
+    const progress = options.progress || getCameraRouteProgress(lat, lon);
+    const zoom = options.zoom ?? (
+      state.mapMode === "heading" && hasNativeMapRotation()
+        ? getHeadingUpTargetZoom(lat, lon, progress)
+        : map.getZoom()
+    );
+    const targetCenter = getFollowTargetCenter(lat, lon, zoom, { ...options, progress });
 
     if (options.setView) {
+      map.setView(targetCenter, zoom, { animate: true });
+      return;
+    }
+
+    if (state.mapMode === "heading" && hasNativeMapRotation() && Math.abs(map.getZoom() - zoom) > 0.38) {
       map.setView(targetCenter, zoom, { animate: true });
       return;
     }
@@ -1010,7 +1405,9 @@
     if (!pos) return;
 
     const minZoom = isDesktopLayout() ? DRIVE_START_ZOOM_DESKTOP : DRIVE_START_ZOOM_MOBILE;
-    const targetZoom = Math.max(map.getZoom(), minZoom);
+    const targetZoom = state.mapMode === "heading" && hasNativeMapRotation()
+      ? getHeadingUpTargetZoom(pos.lat, pos.lon)
+      : Math.max(map.getZoom(), minZoom);
 
     // Räkna ut körläges-centrum med målzoomen och gör zoom+pan samtidigt.
     // V6 använder även smart framför-vy så man ser mer åt färdriktningen.
@@ -1065,6 +1462,7 @@
     state.follow = Boolean(on);
     el.followBtn.textContent = state.follow ? "🧭 Följ: på" : "🧭 Följ: av";
     updateResumeFollowButton({ delayHide: options.delayResumeHide });
+    updateMapRotation(true);
 
     if (state.follow && state.userPos) {
       enterDrivingView();
@@ -1951,6 +2349,12 @@
     }
     updateStepsUI();
 
+    // V6.6.6: på telefon ska sök/favoritkortet vara minimerat när mål är klart,
+    // så den visade ursprungliga rutten får plats på skärmen.
+    if (!isDesktopLayout()) {
+      setPanelCollapsed(true, { force: true });
+    }
+
     const km = ((state.route.distance || 0) / 1000).toFixed(1);
     el.routeTitle.textContent = shortName(state.destination?.label || "Destination");
     el.routeSubtitle.textContent = "Ursprunglig rutt";
@@ -1962,8 +2366,17 @@
       label: "Start"
     };
     if (state.destination) {
+      map.invalidateSize();
       fitRoute(start, state.destination, state.route.coords);
-      window.setTimeout(() => fitRoute(start, state.destination, state.route.coords), 90);
+      window.setTimeout(() => {
+        if (!state.navigating && state.arrivedHandled) fitRoute(start, state.destination, state.route.coords);
+      }, 90);
+      window.setTimeout(() => {
+        if (!state.navigating && state.arrivedHandled) fitRoute(start, state.destination, state.route.coords);
+      }, 360);
+      window.setTimeout(() => {
+        if (!state.navigating && state.arrivedHandled) fitRoute(start, state.destination, state.route.coords);
+      }, 720);
     }
   }
 
@@ -1971,9 +2384,14 @@
     if (state.arrivedHandled) return;
     state.arrivedHandled = true;
     state.navigating = false;
+    state.follow = false;
+    stopMapRotationAnimation();
+    if (el.followBtn) el.followBtn.textContent = "🧭 Följ: av";
+    updateMapRotation(true);
     if (state.userMarker) state.userMarker.setIcon(makeUserIcon());
     state.offRouteHits = 0;
     state.lastNavStepKey = "";
+    state.lastCorridorHeading = null;
     state.navDisplayedStepKey = "";
     state.navVisibleInstructionSig = "";
     state.turnLock = null;
@@ -2357,6 +2775,7 @@
     state.arrivedHandled = false;
     document.body.classList.add("navigating");
     if (state.userPos) updateSmartUserHeading(state.userPos.lat, state.userPos.lon, state.userPos);
+    updateMapRotation(true);
     if (state.userMarker) state.userMarker.setIcon(makeUserIcon());
     setRouteCompactMode();
     el.navTop.classList.remove("hidden");
@@ -2373,6 +2792,9 @@
     hideUiCard(el.stepsSheet, null, false);
     document.body.classList.remove("steps-open");
     state.navigating = false;
+    stopMapRotationAnimation();
+    updateMapRotation(true);
+    if (state.userMarker) state.userMarker.setIcon(makeUserIcon());
     state.offRouteHits = 0;
     state.lastNavStepKey = "";
     state.navDisplayedStepKey = "";
@@ -2697,6 +3119,7 @@
     state.turnLockReleasedKey = "";
     state.navStepAnimationSeq = (state.navStepAnimationSeq || 0) + 1;
     state.arrivedHandled = false;
+    updateMapRotation(true);
     state.offRouteHits = 0;
     state.lastNavStepKey = "";
     state.lastRemainingRouteIndex = -1;
@@ -2730,6 +3153,7 @@
     hideUiCard(el.stepsSheet, null, false);
     document.body.classList.remove("steps-open");
     state.navigating = false;
+    stopMapRotationAnimation();
     state.offRouteHits = 0;
     state.lastNavStepKey = "";
     state.navDisplayedStepKey = "";
@@ -3358,7 +3782,7 @@
     document.body.classList.remove("demo-active");
 
     if (el.betaBadge) {
-      el.betaBadge.textContent = "BETA · v6.4";
+      el.betaBadge.textContent = "BETA · v6.6.7";
       el.betaBadge.title = "Klicka för att dölja. Håll inne för testresa.";
     }
 
@@ -3496,12 +3920,17 @@
     if (el.settingsBtn) el.settingsBtn.addEventListener("click", showSettings);
     if (el.closeSettingsBtn) el.closeSettingsBtn.addEventListener("click", hideSettings);
     if (el.designModeSelect) el.designModeSelect.addEventListener("change", () => saveDesignMode(el.designModeSelect.value));
+    if (el.mapModeSelect) el.mapModeSelect.addEventListener("change", () => saveMapMode(el.mapModeSelect.value));
     if (el.saveFuelSettingsBtn) el.saveFuelSettingsBtn.addEventListener("click", saveFuelSettingsFromForm);
     if (el.clearFuelSettingsBtn) el.clearFuelSettingsBtn.addEventListener("click", clearFuelSettings);
 
     el.themeBtn.addEventListener("click", () => {
       document.body.classList.toggle("dark");
       storageSet("30maps:dark", document.body.classList.contains("dark"));
+    });
+
+    map.on("resize moveend zoomend viewreset", () => {
+      if (state.mapMode === "heading") updateMapRotation(true);
     });
 
     map.on("dragstart", () => {
@@ -3533,6 +3962,7 @@
 
   function init() {
     loadDesignMode();
+    loadMapMode();
     if (storageGet("30maps:dark", false)) document.body.classList.add("dark");
     loadFuelSettings();
     renderFuelSettingsForm();

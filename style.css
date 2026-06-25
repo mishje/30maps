@@ -2072,3 +2072,157 @@ body.design-cockpit .user-dot-wrap.smart-heading .user-heading{
 body.design-cockpit .user-dot-wrap.smart-heading .user-dot{
   background:#12a150!important;
 }
+
+
+/* =========================
+   V6.5: kartläge och heading-up beta
+   ========================= */
+
+:root{
+  --map-rotation:0deg;
+  --map-marker-counter:0deg;
+}
+
+/* Beta: rotera själva Leaflet-kartan utan att röra kontroller/UI. */
+body.heading-up-active #map .leaflet-map-pane{
+  rotate:var(--map-rotation);
+  transform-origin:50% 50%;
+  transition:rotate .28s linear;
+  will-change:rotate;
+}
+
+/* Håll egna markörer läsbara när kartan roteras. */
+body.heading-up-active .map-pin,
+body.heading-up-active .step-map-marker{
+  rotate:var(--map-marker-counter);
+}
+
+/* Lite tydligare beta-känsla i fordonspilen när heading-up är aktiv. */
+body.heading-up-active .user-dot-wrap.smart-heading .user-heading{
+  border-bottom-color:rgba(245,185,63,.72)!important;
+}
+body.heading-up-active.design-cockpit .user-dot-wrap.smart-heading .user-heading{
+  border-bottom-color:rgba(245,185,63,.78)!important;
+}
+
+body.design-cockpit .settings-block select#mapModeSelect,
+body.design-classic .settings-block select#mapModeSelect{
+  margin-bottom:2px;
+}
+
+
+/* =========================
+   V6.6: heading-up centrering och kartläge utan Nord upp
+   ========================= */
+
+body.map-mode-heading.heading-up-active #map .leaflet-map-pane{
+  transition:rotate .22s linear;
+}
+
+body.map-mode-smart #map .leaflet-map-pane{
+  rotate:0deg;
+}
+
+body.design-cockpit .settings-block select#mapModeSelect,
+body.design-classic .settings-block select#mapModeSelect{
+  min-height:46px;
+}
+
+
+/* =========================
+   V6.6.1: heading-up rotationscentrum
+   ========================= */
+
+:root{
+  --map-rotation-origin-x:50%;
+  --map-rotation-origin-y:50%;
+  --heading-up-scale:1;
+}
+
+/* V6.6.1: rotationscentrumet sätts dynamiskt till viewportens mitt i Leaflet-pane-koordinater.
+   Extra scale hindrar grå tomma hörn när kartan roteras. */
+body.heading-up-active #map .leaflet-map-pane{
+  transform-origin:var(--map-rotation-origin-x) var(--map-rotation-origin-y)!important;
+  scale:var(--heading-up-scale)!important;
+  transition:rotate .22s linear, scale .20s ease!important;
+}
+
+/* Leaflet-plattor kan annars ge synliga grå kanter under rotation. */
+body.heading-up-active #map .leaflet-tile-pane{
+  will-change:transform;
+}
+
+body:not(.heading-up-active) #map .leaflet-map-pane{
+  scale:1!important;
+}
+
+
+/* =========================
+   V6.6.2: riktig Leaflet-rotation eller säker fallback
+   ========================= */
+
+/* Stäng av den gamla CSS-rotationen helt. Den orsakade fel centrering och grå hörn. */
+body.heading-up-active #map .leaflet-map-pane,
+body.map-mode-heading.heading-up-active #map .leaflet-map-pane,
+body:not(.heading-up-active) #map .leaflet-map-pane{
+  rotate:0deg!important;
+  scale:1!important;
+  transform-origin:50% 50%!important;
+}
+
+/* Om leaflet-rotate inte laddas används Smart körvy som fallback. */
+body.heading-up-fallback .beta-badge::after{
+  content:" · Smart fallback";
+  opacity:.72;
+  font-size:.78em;
+}
+
+
+/* =========================
+   V6.6.3: heading-up bearingriktning
+   ========================= */
+
+/* Om bearing inte kan appliceras ska pilen fortsätta visa verklig riktning. */
+body.heading-up-fallback .user-dot-wrap.smart-heading .user-heading{
+  border-bottom-color:rgba(30,136,255,.62)!important;
+}
+
+body.heading-up-active .user-dot-wrap.smart-heading .user-heading{
+  border-bottom-color:rgba(245,185,63,.82)!important;
+}
+
+
+/* =========================
+   V6.6.4: mjukare heading-up
+   ========================= */
+
+body.heading-up-active .user-dot-wrap{
+  transition:transform .30s linear!important;
+}
+
+
+/* =========================
+   V6.6.5: mjukare svängar i heading-up
+   ========================= */
+
+body.heading-up-active .user-dot-wrap{
+  transition:transform .34s linear!important;
+}
+
+
+/* =========================
+   V6.6.6: route-corridor heading
+   ========================= */
+
+body.heading-up-active .user-dot-wrap{
+  transition:transform .36s linear!important;
+}
+
+
+/* =========================
+   V6.6.7: mjuk bearing-animation
+   ========================= */
+
+body.heading-up-active .user-dot-wrap{
+  transition:transform .38s linear!important;
+}
