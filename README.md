@@ -1,20 +1,32 @@
-# 30maps A-Traktor Navigator V6.1
+# 30maps A-Traktor Navigator V6.2
 
 GitHub Pages-ready statisk PWA för A-traktor-navigering.
 
-## V6.1
+## V6.2
 
-Bygger vidare på V6.
+Bygger vidare på V6.1.
 
-Fixar:
-- Den ursprungliga OSRM/bilrutten sparas nu separat när första rutten räknas.
-- Vid felkörning/omruttning bevaras den ursprungliga OSRM/bilrutten, precis som den ursprungliga valda 30maps-rutten.
-- När originalrutten visas igen kan den blå bilrutten också komma från den ursprungliga OSRM/bilrutten.
-- Den ursprungliga OSRM/bilrutten rensas först när man rensar rutten eller väljer ett nytt mål.
-- När ett delat mål öppnas på telefon/liten skärm startar sök/favorit-rutan minimerad.
-- Desktop/större skärm lämnas fortsatt öppen.
+Nytt:
+- “Visa steg” visar nu numrerade stegmarkörer på kartan.
+- Siffrorna på kartan matchar stegen i stegrutan.
+- När stegrutan stängs tas stegmarkörerna bort.
+- Tryck på ett steg i listan flyttar/zoomar kartan till just det steget.
+- Valt steg får tydlig highlight både i listan och på kartan.
+- Ny liten inställningsknapp `⚙️` i sök/favorit-panelen.
+- Bränsleberäkning med manuell medelförbrukning.
+- Manuell literprisinställning.
+- Bränsle/kostnad visas bara om medelförbrukning är ifylld.
+- Ruttkortets storlek ändras inte; samma lilla metayta växlar/fadear mellan distans/tid och bränsle/kostnad.
+
+Bränsle:
+- Medelförbrukning anges i `L/mil`.
+- Literpris anges i `kr/L`.
+- Om literpris saknas visas bara ungefärlig bränsleåtgång.
+- Om både medelförbrukning och literpris finns visas ungefärlig bränsleåtgång och kostnad.
 
 Behåller:
+- V6.1: ursprunglig OSRM/bilrutt bevaras över omruttning.
+- V6.1: delat mål på telefon öppnar med sök/favorit-rutan minimerad.
 - V6: `config.js` med `APP_BASE_URL`.
 - V6: liten `↗ Dela`-knapp för mål.
 - V5.9: smart framför-vy utan kartrotation.
@@ -24,7 +36,7 @@ Behåller:
 - V5.6: hårt svängkortslås.
 
 Cache:
-- `style.css?v=61`
-- `app.js?v=61`
-- `config.js?v=61`
-- Service worker-cache: `30maps-v61`
+- `style.css?v=62`
+- `app.js?v=62`
+- `config.js?v=62`
+- Service worker-cache: `30maps-v62`

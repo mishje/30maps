@@ -1176,3 +1176,168 @@ body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard .route-shar
 body.route-compact:not(.panel-collapsed):not(.navigating) #routeCard .route-main{
   padding-right:120px!important;
 }
+
+
+/* =========================
+   V6.2: stegmarkörer och bränsleinställningar
+   ========================= */
+
+.panel-header-actions{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  flex-shrink:0;
+}
+.panel-header-actions .round-btn{
+  width:42px;
+  min-width:42px;
+  min-height:42px;
+}
+
+.settings-sheet{
+  position:fixed;
+  z-index:2150;
+  left:12px;
+  right:12px;
+  bottom:max(12px,env(safe-area-inset-bottom));
+  background:#fff;
+  border-radius:25px;
+  padding:13px;
+  box-shadow:0 22px 70px rgba(0,0,0,.34);
+}
+.settings-sheet header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:10px;
+}
+.settings-sheet header strong{
+  font-size:18px;
+}
+.settings-block{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.settings-block p{
+  margin:0;
+  color:#667;
+  font-size:13px;
+  line-height:1.35;
+}
+.settings-block label{
+  font-size:12px;
+  font-weight:900;
+  color:#59616b;
+  margin:3px 0 -3px 3px;
+}
+.settings-actions{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-top:5px;
+}
+.settings-actions .primary-btn{
+  grid-column:auto;
+}
+.route-main span{
+  transition:opacity .18s ease, transform .18s ease;
+}
+.route-main span.route-meta-fade{
+  opacity:.18;
+  transform:translateY(2px);
+}
+
+.step-map-marker{
+  width:30px;
+  height:30px;
+  border-radius:999px;
+  display:grid;
+  place-items:center;
+  background:#0b7cff;
+  color:#fff;
+  border:3px solid #fff;
+  box-shadow:0 7px 20px rgba(0,0,0,.34);
+  font-size:13px;
+  font-weight:950;
+  line-height:1;
+}
+.step-map-marker.active{
+  width:38px;
+  height:38px;
+  background:#ff7a00;
+  box-shadow:0 0 0 5px rgba(255,122,0,.22),0 10px 26px rgba(0,0,0,.38);
+  font-size:15px;
+}
+
+#stepsList{
+  padding-left:0!important;
+}
+#stepsList li{
+  list-style:none;
+  padding:0!important;
+}
+.step-list-btn{
+  width:100%;
+  min-height:50px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  border:0;
+  border-radius:14px;
+  background:transparent;
+  text-align:left;
+  padding:10px 7px;
+}
+.step-list-number{
+  width:30px;
+  min-width:30px;
+  height:30px;
+  border-radius:999px;
+  display:grid;
+  place-items:center;
+  background:#0b7cff;
+  color:#fff;
+  font-weight:950;
+  box-shadow:0 4px 14px rgba(0,0,0,.16);
+}
+.step-list-text{
+  flex:1;
+  min-width:0;
+  font-size:15px;
+  line-height:1.28;
+}
+.step-list-text small{
+  display:block;
+  margin-top:3px;
+}
+#stepsList li.active-step .step-list-btn{
+  background:rgba(255,122,0,.12);
+}
+#stepsList li.active-step .step-list-number{
+  background:#ff7a00;
+}
+
+body.dark .settings-sheet{
+  background:rgba(20,24,30,.94);
+  border-color:rgba(255,255,255,.08);
+  color:#f5f7fb;
+}
+body.dark .settings-block p,
+body.dark .settings-block label{
+  color:#b8c0cc;
+}
+body.dark .step-list-btn{
+  color:#f5f7fb;
+}
+body.dark #stepsList li.active-step .step-list-btn{
+  background:rgba(255,122,0,.20);
+}
+
+@media (min-width:700px){
+  .settings-sheet{
+    left:16px;
+    right:auto;
+    width:440px;
+  }
+}

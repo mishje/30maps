@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "6.1";
+  const VERSION = "6.2";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
@@ -43,6 +43,7 @@
     recentList: document.getElementById("recentList"),
     manageFavsBtn: document.getElementById("manageFavsBtn"),
     clearRecentsBtn: document.getElementById("clearRecentsBtn"),
+    settingsBtn: document.getElementById("settingsBtn"),
     themeBtn: document.getElementById("themeBtn"),
     routeCard: document.getElementById("routeCard"),
     closeRouteBtn: document.getElementById("closeRouteBtn"),
@@ -68,6 +69,12 @@
     stepsSheet: document.getElementById("stepsSheet"),
     stepsList: document.getElementById("stepsList"),
     closeStepsBtn: document.getElementById("closeStepsBtn"),
+    settingsSheet: document.getElementById("settingsSheet"),
+    closeSettingsBtn: document.getElementById("closeSettingsBtn"),
+    fuelConsumptionInput: document.getElementById("fuelConsumptionInput"),
+    fuelPriceInput: document.getElementById("fuelPriceInput"),
+    saveFuelSettingsBtn: document.getElementById("saveFuelSettingsBtn"),
+    clearFuelSettingsBtn: document.getElementById("clearFuelSettingsBtn"),
     tapSheet: document.getElementById("tapSheet"),
     tapCoords: document.getElementById("tapCoords"),
     tapNavigateBtn: document.getElementById("tapNavigateBtn"),
@@ -142,6 +149,13 @@
     navStepAnimationCleanupTimer: null,
     navStepAnimationSeq: 0,
     resumeFollowHideTimer: null,
+    stepMarkers: [],
+    highlightedStepIndex: -1,
+    fuelSettings: { consumptionLPerMil: 0, pricePerLiter: 0 },
+    routeMetaPrimary: "",
+    routeMetaFuel: "",
+    routeMetaCycleTimer: null,
+    routeMetaShowingFuel: false,
     sharedDestinationAutoRoute: false,
     sharedDestinationOpened: false,
     lastSharedDestinationHash: ""
@@ -272,11 +286,150 @@
     toast._timer = setTimeout(() => el.toast.classList.add("hidden"), 2400);
   }
 
+  function parseFuelNumber(value) {
+    const cleaned = String(value || "")
+      .replace(",", ".")
+      .replace(/[^\d.]/g, "");
+    const num = Number(cleaned);
+    return Number.isFinite(num) && num > 0 ? num : 0;
+  }
+
+  function formatFuelNumber(value, decimals = 2) {
+    if (!Number.isFinite(value) || value <= 0) return "";
+    return value.toFixed(decimals).replace(".", ",").replace(/,?0+$/, "");
+  }
+
+  function loadFuelSettings() {
+    const saved = storageGet("30maps:fuelSettings", {});
+    state.fuelSettings = {
+      consumptionLPerMil: Number(saved.consumptionLPerMil) > 0 ? Number(saved.consumptionLPerMil) : 0,
+      pricePerLiter: Number(saved.pricePerLiter) > 0 ? Number(saved.pricePerLiter) : 0
+    };
+  }
+
+  function saveFuelSettings(settings) {
+    state.fuelSettings = {
+      consumptionLPerMil: Number(settings.consumptionLPerMil) > 0 ? Number(settings.consumptionLPerMil) : 0,
+      pricePerLiter: Number(settings.pricePerLiter) > 0 ? Number(settings.pricePerLiter) : 0
+    };
+    storageSet("30maps:fuelSettings", state.fuelSettings);
+  }
+
+  function renderFuelSettingsForm() {
+    if (!el.fuelConsumptionInput || !el.fuelPriceInput) return;
+    el.fuelConsumptionInput.value = state.fuelSettings.consumptionLPerMil
+      ? formatFuelNumber(state.fuelSettings.consumptionLPerMil, 2)
+      : "";
+    el.fuelPriceInput.value = state.fuelSettings.pricePerLiter
+      ? formatFuelNumber(state.fuelSettings.pricePerLiter, 2)
+      : "";
+  }
+
+  function showSettings() {
+    renderFuelSettingsForm();
+    showUiCard(el.settingsSheet);
+  }
+
+  function hideSettings() {
+    hideUiCard(el.settingsSheet);
+  }
+
+  function saveFuelSettingsFromForm() {
+    const consumption = parseFuelNumber(el.fuelConsumptionInput?.value);
+    const price = parseFuelNumber(el.fuelPriceInput?.value);
+    saveFuelSettings({ consumptionLPerMil: consumption, pricePerLiter: price });
+
+    if (consumption) {
+      toast("Bränsleberäkning sparad");
+    } else {
+      toast("Bränsleberäkning avstängd");
+    }
+
+    updateCurrentRouteMeta();
+    hideSettings();
+  }
+
+  function clearFuelSettings() {
+    saveFuelSettings({ consumptionLPerMil: 0, pricePerLiter: 0 });
+    renderFuelSettingsForm();
+    updateCurrentRouteMeta();
+    toast("Bränsleberäkning avstängd");
+    hideSettings();
+  }
+
+  function buildFuelMetaText(distanceMeters) {
+    const consumption = state.fuelSettings?.consumptionLPerMil || 0;
+    if (!consumption || !Number.isFinite(distanceMeters)) return "";
+
+    const km = Math.max(0, distanceMeters / 1000);
+    const liters = (km / 10) * consumption;
+    if (!Number.isFinite(liters) || liters <= 0) return "";
+
+    const literText = `ca ${formatFuelNumber(liters, liters < 1 ? 2 : 1)} L`;
+    const price = state.fuelSettings?.pricePerLiter || 0;
+
+    if (price) {
+      const cost = Math.round(liters * price);
+      return `${literText} · ca ${cost} kr`;
+    }
+
+    return literText;
+  }
+
+  function clearRouteMetaCycle() {
+    clearInterval(state.routeMetaCycleTimer);
+    state.routeMetaCycleTimer = null;
+    state.routeMetaShowingFuel = false;
+  }
+
+  function writeRouteMeta(text, animate = false) {
+    if (!el.routeMeta) return;
+
+    if (!animate) {
+      el.routeMeta.classList.remove("route-meta-fade");
+      el.routeMeta.textContent = text || "";
+      return;
+    }
+
+    el.routeMeta.classList.add("route-meta-fade");
+    window.setTimeout(() => {
+      el.routeMeta.textContent = text || "";
+      el.routeMeta.classList.remove("route-meta-fade");
+    }, 130);
+  }
+
+  function setRouteMeta(primaryText, distanceMeters = null) {
+    clearRouteMetaCycle();
+
+    state.routeMetaPrimary = primaryText || "";
+    state.routeMetaFuel = buildFuelMetaText(distanceMeters);
+    state.routeMetaShowingFuel = false;
+
+    writeRouteMeta(state.routeMetaPrimary, false);
+
+    if (!state.routeMetaFuel) return;
+
+    state.routeMetaCycleTimer = window.setInterval(() => {
+      state.routeMetaShowingFuel = !state.routeMetaShowingFuel;
+      writeRouteMeta(state.routeMetaShowingFuel ? state.routeMetaFuel : state.routeMetaPrimary, true);
+    }, 3400);
+  }
+
+  function updateCurrentRouteMeta() {
+    if (state.route && Number.isFinite(state.route.distance)) {
+      const km = (state.route.distance / 1000).toFixed(1);
+      setRouteMeta(`${km} km · ${etaFromMeters(state.route.distance)}`, state.route.distance);
+    } else {
+      setRouteMeta(state.routeMetaPrimary || "");
+    }
+  }
+
+
   function errorBox(title, detail) {
     showRouteCard();
     el.routeTitle.textContent = title;
     el.routeSubtitle.textContent = detail || "";
-    el.routeMeta.textContent = "";
+    setRouteMeta("");
     el.nextInstruction.classList.add("hidden");
     el.routeWarning.textContent = detail || "Testa igen om en stund.";
     el.routeWarning.classList.remove("hidden");
@@ -413,7 +566,7 @@
     showRouteCard();
     el.routeTitle.textContent = shortName(place.label || "Delat mål");
     el.routeSubtitle.textContent = "Delat mål · väntar på GPS";
-    el.routeMeta.textContent = fmtCoord(place.lat, place.lon);
+    setRouteMeta(fmtCoord(place.lat, place.lon));
     el.nextInstruction.classList.add("hidden");
     el.routeWarning.classList.add("hidden");
     if (el.routeAdvancedBtn) el.routeAdvancedBtn.classList.add("hidden");
@@ -1042,7 +1195,7 @@
     showRouteCard();
     el.routeTitle.textContent = options.reroute ? "Beräknar om rutt..." : "Beräknar smart A-traktorrutt...";
     el.routeSubtitle.textContent = "Jämför bilväg mot kortare 30 km/h-rutter";
-    el.routeMeta.textContent = "";
+    setRouteMeta("");
     el.nextInstruction.classList.add("hidden");
     el.routeWarning.classList.add("hidden");
     if (el.routeAdvancedBtn) el.routeAdvancedBtn.classList.add("hidden");
@@ -1110,12 +1263,13 @@
       drawCarRoute(null);
 
       drawRoute(route.coords);
+      if (el.stepsSheet.classList.contains("hidden")) clearStepMarkers();
 
       const km = (route.distance / 1000).toFixed(1);
       const eta = etaFromMeters(route.distance);
       el.routeTitle.textContent = shortName(dest.label);
       el.routeSubtitle.textContent = `${result.chosen.summary || result.chosen.name} · A-traktor, 30 km/h`;
-      el.routeMeta.textContent = `${km} km · ${eta}`;
+      setRouteMeta(`${km} km · ${eta}`, route.distance);
 
       updateStepsUI();
 
@@ -1697,7 +1851,7 @@
     const km = ((state.route.distance || 0) / 1000).toFixed(1);
     el.routeTitle.textContent = shortName(state.destination?.label || "Destination");
     el.routeSubtitle.textContent = "Ursprunglig rutt";
-    el.routeMeta.textContent = `${km} km · ${etaFromMeters(state.route.distance || 0)}`;
+    setRouteMeta(`${km} km · ${etaFromMeters(state.route.distance || 0)}`, state.route.distance || 0);
 
     const start = state.originalStart || getStartForRoute() || {
       lat: state.route.coords[0][0],
@@ -1911,28 +2065,126 @@
     };
   }
 
+  function getStepLatLng(step) {
+    if (!step) return null;
+
+    if (Array.isArray(step.point) && step.point.length >= 2) {
+      return { lat: Number(step.point[0]), lon: Number(step.point[1]) };
+    }
+
+    const coords = state.route?.coords || [];
+    if (Number.isInteger(step.index) && coords[step.index]) {
+      return { lat: Number(coords[step.index][0]), lon: Number(coords[step.index][1]) };
+    }
+
+    if (Number.isFinite(step.distanceFromStart)) {
+      return routePointAtDistanceAlong(step.distanceFromStart);
+    }
+
+    return null;
+  }
+
+  function makeStepMarkerIcon(number, active = false) {
+    return L.divIcon({
+      className: "",
+      html: `<div class="step-map-marker${active ? " active" : ""}">${number}</div>`,
+      iconSize: [30, 30],
+      iconAnchor: [15, 15]
+    });
+  }
+
+  function clearStepMarkers() {
+    for (const marker of state.stepMarkers || []) {
+      map.removeLayer(marker);
+    }
+    state.stepMarkers = [];
+    state.highlightedStepIndex = -1;
+  }
+
+  function showStepMarkers() {
+    clearStepMarkers();
+
+    const steps = state.route?.instructions || [];
+    if (!steps.length) return;
+
+    steps.forEach((step, index) => {
+      const p = getStepLatLng(step);
+      if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lon)) return;
+
+      const marker = L.marker([p.lat, p.lon], {
+        icon: makeStepMarkerIcon(index + 1, false),
+        zIndexOffset: 2400,
+        keyboard: false
+      }).addTo(map);
+
+      marker.on("click", () => highlightStepMarker(index, true));
+      state.stepMarkers[index] = marker;
+    });
+  }
+
+  function highlightStepMarker(index, focusMap = false) {
+    const steps = state.route?.instructions || [];
+    const step = steps[index];
+    const p = getStepLatLng(step);
+    if (!step || !p) return;
+
+    state.highlightedStepIndex = index;
+
+    (state.stepMarkers || []).forEach((marker, markerIndex) => {
+      if (!marker) return;
+      marker.setIcon(makeStepMarkerIcon(markerIndex + 1, markerIndex === index));
+      marker.setZIndexOffset(markerIndex === index ? 3200 : 2400);
+    });
+
+    const items = el.stepsList ? el.stepsList.querySelectorAll("li") : [];
+    items.forEach((li, liIndex) => li.classList.toggle("active-step", liIndex === index));
+
+    if (focusMap) {
+      if (state.navigating && state.follow) setFollowMode(false, false);
+      const targetZoom = Math.max(map.getZoom(), isDesktopLayout() ? 16 : 17);
+      map.flyTo([p.lat, p.lon], targetZoom, { animate: true, duration: 0.35 });
+    }
+  }
+
   function updateStepsUI() {
     const steps = state.route?.instructions || [];
     el.stepsList.innerHTML = "";
+
     if (!steps.length) {
       const li = document.createElement("li");
       li.textContent = "Inga svänginstruktioner tillgängliga.";
       el.stepsList.appendChild(li);
+      clearStepMarkers();
       return;
     }
-    for (const step of steps) {
+
+    steps.forEach((step, index) => {
       const li = document.createElement("li");
-      li.innerHTML = `${escapeHtml(step.text)}<small>${escapeHtml(fmtDist(step.stepDistance || 0))}</small>`;
+
+      const btn = document.createElement("button");
+      btn.className = "step-list-btn";
+      btn.type = "button";
+      btn.innerHTML = `<span class="step-list-number">${index + 1}</span><span class="step-list-text">${escapeHtml(step.text)}<small>${escapeHtml(fmtDist(step.stepDistance || 0))}</small></span>`;
+      btn.addEventListener("click", () => highlightStepMarker(index, true));
+
+      li.appendChild(btn);
       el.stepsList.appendChild(li);
+    });
+
+    if (!el.stepsSheet.classList.contains("hidden")) {
+      showStepMarkers();
+      if (state.highlightedStepIndex >= 0) highlightStepMarker(state.highlightedStepIndex, false);
     }
   }
 
   function showSteps() {
     updateStepsUI();
+    showStepMarkers();
     showUiCard(el.stepsSheet);
   }
 
   function hideSteps() {
+    clearStepMarkers();
     hideUiCard(el.stepsSheet);
   }
 
@@ -2265,13 +2517,18 @@
     if (el.routeAdvancedBtn) el.routeAdvancedBtn.classList.add("hidden");
     el.nextInstruction.classList.add("hidden");
     hideUiCard(el.stepsSheet, null, false);
+    clearStepMarkers();
     hideUiCard(el.tapSheet, null, false);
+    hideUiCard(el.settingsSheet, null, false);
     exitNavigationModeSilently();
 
     state.destination = null;
     state.sharedDestinationAutoRoute = false;
     state.sharedDestinationOpened = false;
     state.route = null;
+    clearRouteMetaCycle();
+    state.routeMetaPrimary = "";
+    state.routeMetaFuel = "";
     state.originalRoute = null;
     state.originalStart = null;
     state.originalCarRouteCoords = null;
@@ -2508,7 +2765,7 @@
 
     el.routeTitle.textContent = destination.label;
     el.routeSubtitle.textContent = "Testresa · fejk-GPS";
-    el.routeMeta.textContent = `${(state.route.distance / 1000).toFixed(1)} km · ${etaFromMeters(state.route.distance)}`;
+    setRouteMeta(`${(state.route.distance / 1000).toFixed(1)} km · ${etaFromMeters(state.route.distance)}`, state.route.distance);
     setRouteInfoText("TESTLÄGE: fejk-GPS kör en kort testresa. Riktig GPS ignoreras tills testet stoppas.", "Testresan simulerar GPS längs rutten, kör av rutten en gång och fortsätter sedan mot målet. Den testar nästa-steg-rutan, kvarvarande grön ruttlinje och snabb omräkning.");
     updateStepsUI();
     fitRoute(state.start, destination, coords);
@@ -2942,7 +3199,7 @@
     document.body.classList.remove("demo-active");
 
     if (el.betaBadge) {
-      el.betaBadge.textContent = "BETA · v6.1.1";
+      el.betaBadge.textContent = "BETA · v6.2.1";
       el.betaBadge.title = "Klicka för att dölja. Håll inne för testresa.";
     }
 
@@ -3077,6 +3334,11 @@
       clearTapPreviewMarker();
     });
 
+    if (el.settingsBtn) el.settingsBtn.addEventListener("click", showSettings);
+    if (el.closeSettingsBtn) el.closeSettingsBtn.addEventListener("click", hideSettings);
+    if (el.saveFuelSettingsBtn) el.saveFuelSettingsBtn.addEventListener("click", saveFuelSettingsFromForm);
+    if (el.clearFuelSettingsBtn) el.clearFuelSettingsBtn.addEventListener("click", clearFuelSettings);
+
     el.themeBtn.addEventListener("click", () => {
       document.body.classList.toggle("dark");
       storageSet("30maps:dark", document.body.classList.contains("dark"));
@@ -3111,6 +3373,8 @@
 
   function init() {
     if (storageGet("30maps:dark", false)) document.body.classList.add("dark");
+    loadFuelSettings();
+    renderFuelSettingsForm();
     renderFavorites();
     renderRecents();
     initEvents();
