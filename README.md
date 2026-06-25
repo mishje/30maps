@@ -1,30 +1,28 @@
-# 30maps A-Traktor Navigator V6.2.3
+# 30maps A-Traktor Navigator V6.3.1
 
 GitHub Pages-ready statisk PWA för A-traktor-navigering.
 
-## V6.2.3
+## V6.3.1
 
-Bygger vidare på V6.2.2.
+Bygger vidare på V6.3.
 
 Fixar:
-- “Tillbaka till körläge”-knappen ligger högre upp och ska inte hamna ovanpå nedersta körkortet.
-- Knappen följer temat normalt:
-  - ljust läge: ljus knapp med mörk text
-  - mörkt läge: mörk knapp med ljus text
-- Steglistan är kompaktare på telefon under aktiv navigation.
-- Steglistan tar max cirka halva skärmen och innehållet scrollar.
-- Mindre radhöjd, mindre padding och mindre siffermarkörer i stegrutan under aktiv navigation.
-- Kartan/rutten ska vara lättare att se samtidigt som stegen är öppna.
+- Designläge läggs till i Inställningar:
+  - 30maps Cockpit
+  - Klassisk design
+- Första besök startar alltid i Cockpit om användaren inte har sparat något annat.
+- Användarens designval sparas lokalt med `localStorage`.
+- Cockpit-stilen är nu scope:ad till `body.design-cockpit`.
+- Klassisk design använder gamla V6.2.x-utseendet och fungerar med både ljust och mörkt tema.
+- Ljust/mörkt tema är separerat från designläget.
+- Versionsrutan är fixad så den inte blir helgrön/fel i något läge.
+- Nya designreglaget är stylat i både Cockpit och Klassisk design.
 
-Behåller:
-- V6.2.2: metarad under toppknapparna i ruttkortet.
-- V6.2.1: kompaktare ruttkort på telefon.
-- V6.2: numrerade stegmarkörer och bränsle/kostnad via inställningar.
-- V6.1: ursprunglig OSRM/bilrutt bevaras över omruttning.
-- V6: `config.js` och delning av mål.
+Viktigt framåt:
+- Nya UI-delar ska kontrolleras i både Cockpit och Klassisk design.
 
 Cache:
-- `style.css?v=623`
-- `app.js?v=623`
-- `config.js?v=623`
-- Service worker-cache: `30maps-v623`
+- `style.css?v=631`
+- `app.js?v=631`
+- `config.js?v=631`
+- Service worker-cache: `30maps-v631`

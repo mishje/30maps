@@ -1617,3 +1617,405 @@ body.dark .resume-follow-btn{
     font-size:11.5px!important;
   }
 }
+
+
+/* =========================
+   V6.2.4: stegruta under körläge
+   ========================= */
+
+/* Tidigare V6.2.3-regel tvingade fram display:flex även när rutan var hidden. */
+body.navigating .steps-sheet.hidden{
+  display:none!important;
+}
+
+@media (max-width:699px){
+  body.navigating .steps-sheet:not(.hidden){
+    display:flex!important;
+    left:10px!important;
+    right:10px!important;
+    bottom:calc(max(12px,env(safe-area-inset-bottom)) + 176px)!important;
+    max-height:38vh!important;
+    padding:9px!important;
+    border-radius:21px!important;
+    flex-direction:column!important;
+  }
+
+  body.navigating .steps-sheet:not(.hidden) #stepsList{
+    max-height:calc(38vh - 58px)!important;
+    overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+
+  body.navigating .steps-sheet:not(.hidden) .sheet-handle{
+    margin-bottom:7px!important;
+  }
+
+  body.navigating .steps-sheet:not(.hidden) header{
+    margin-bottom:4px!important;
+  }
+}
+
+
+/* =========================
+   V6.2.5: stegkort nära km-kort och körlägeknapp ovanför steg
+   ========================= */
+
+@media (max-width:699px){
+  body.navigating .steps-sheet:not(.hidden){
+    bottom:calc(max(12px,env(safe-area-inset-bottom)) + 112px)!important;
+    max-height:40vh!important;
+  }
+
+  body.navigating .steps-sheet:not(.hidden) #stepsList{
+    max-height:calc(40vh - 58px)!important;
+  }
+
+  body.navigating.steps-open .resume-follow-btn:not(.hidden){
+    bottom:calc(max(12px,env(safe-area-inset-bottom)) + 112px + 40vh + 10px)!important;
+  }
+}
+
+
+/* =========================
+   V6.3.1: designläge Cockpit / Klassisk
+   ========================= */
+
+:root{
+  --cockpit-bg:#071018;
+  --cockpit-panel:#111a23;
+  --cockpit-panel-2:#162231;
+  --cockpit-panel-3:#0b131b;
+  --cockpit-border:rgba(226,232,240,.12);
+  --cockpit-border-strong:rgba(226,232,240,.20);
+  --cockpit-text:#f8fafc;
+  --cockpit-muted:#9ca7b5;
+  --cockpit-green:#12a150;
+  --cockpit-green-2:#16b861;
+  --cockpit-blue:#2f7df6;
+  --cockpit-orange:#f5b93f;
+  --cockpit-red:#ef4444;
+  --cockpit-shadow:0 18px 52px rgba(0,0,0,.42);
+  --cockpit-radius:20px;
+  --cockpit-radius-sm:15px;
+}
+
+/* Klassisk design använder den gamla bas-CSS:en. Endast små kompletteringar för nya reglage. */
+body.design-classic select{
+  width:100%;
+  min-height:46px;
+  border-radius:16px;
+  border:1px solid #d8dde5;
+  background:#fff;
+  color:#111821;
+  padding:0 12px;
+  font:inherit;
+}
+body.design-classic.dark select{
+  background:#111821;
+  color:#f5f7fb;
+  border-color:#2b3441;
+}
+
+/* Versionsrutan ska inte bli felgrön i något läge. */
+.beta-badge{
+  background:rgba(255,255,255,.92)!important;
+  color:#111821!important;
+  border-color:rgba(17,24,39,.14)!important;
+  box-shadow:0 8px 28px rgba(0,0,0,.16)!important;
+}
+body.dark .beta-badge{
+  background:rgba(17,24,39,.92)!important;
+  color:#fff!important;
+  border-color:rgba(255,255,255,.20)!important;
+  box-shadow:0 8px 28px rgba(0,0,0,.34)!important;
+}
+body.design-cockpit .beta-badge,
+body.design-cockpit.dark .beta-badge{
+  background:linear-gradient(180deg,rgba(15,24,34,.96),rgba(7,16,24,.94))!important;
+  color:#f8fafc!important;
+  border-color:rgba(18,161,80,.42)!important;
+  box-shadow:0 10px 30px rgba(0,0,0,.36)!important;
+}
+
+/* Cockpit-läge: scoped så Klassisk kan återgå till gamla designen. */
+body.design-cockpit{
+  background:var(--cockpit-bg)!important;
+  color:var(--cockpit-text)!important;
+}
+body.design-cockpit.dark{
+  background:#050b11!important;
+}
+
+/* Ljust utseende i Cockpit är fortfarande cockpit, men lite mindre djupt. */
+body.design-cockpit:not(.dark) .boot{
+  background:linear-gradient(145deg,rgba(12,24,34,.50),rgba(8,17,25,.42))!important;
+}
+body.design-cockpit .boot{
+  background:linear-gradient(145deg,rgba(7,16,24,.72),rgba(12,24,34,.58))!important;
+}
+
+body.design-cockpit .boot-card,
+body.design-cockpit .panel,
+body.design-cockpit .route-card,
+body.design-cockpit .nav-bottom,
+body.design-cockpit .tap-sheet,
+body.design-cockpit .steps-sheet,
+body.design-cockpit .settings-sheet{
+  background:linear-gradient(160deg,rgba(22,34,49,.96),rgba(10,17,24,.94))!important;
+  color:var(--cockpit-text)!important;
+  border:1px solid var(--cockpit-border)!important;
+  border-radius:var(--cockpit-radius)!important;
+  box-shadow:var(--cockpit-shadow)!important;
+  backdrop-filter:blur(18px) saturate(1.08)!important;
+}
+body.design-cockpit.dark .boot-card,
+body.design-cockpit.dark .panel,
+body.design-cockpit.dark .route-card,
+body.design-cockpit.dark .nav-bottom,
+body.design-cockpit.dark .tap-sheet,
+body.design-cockpit.dark .steps-sheet,
+body.design-cockpit.dark .settings-sheet{
+  background:linear-gradient(160deg,rgba(13,22,31,.97),rgba(5,10,16,.96))!important;
+  border-color:rgba(226,232,240,.10)!important;
+}
+
+body.design-cockpit .panel{
+  padding:11px!important;
+}
+body.design-cockpit .panel-header{
+  padding:2px 2px 1px!important;
+}
+body.design-cockpit .panel-header strong,
+body.design-cockpit .route-main strong,
+body.design-cockpit .steps-sheet header strong,
+body.design-cockpit .settings-sheet header strong,
+body.design-cockpit .tap-sheet strong{
+  color:var(--cockpit-text)!important;
+  letter-spacing:.01em;
+}
+body.design-cockpit .panel-header small,
+body.design-cockpit .route-main small,
+body.design-cockpit .hint,
+body.design-cockpit .settings-block p,
+body.design-cockpit .settings-block label,
+body.design-cockpit .search-section label,
+body.design-cockpit .section-title,
+body.design-cockpit #stepsList small,
+body.design-cockpit .nav-bottom small{
+  color:var(--cockpit-muted)!important;
+}
+
+body.design-cockpit .panel-handle-btn{
+  background:linear-gradient(180deg,rgba(24,38,54,.94),rgba(11,19,27,.94))!important;
+  border:1px solid var(--cockpit-border)!important;
+  color:var(--cockpit-text)!important;
+  border-radius:16px!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05)!important;
+}
+body.design-cockpit .panel-grabber,
+body.design-cockpit .sheet-handle{
+  background:rgba(148,163,184,.38)!important;
+}
+
+body.design-cockpit input,
+body.design-cockpit select,
+body.design-cockpit .suggestions,
+body.design-cockpit .suggestion,
+body.design-cockpit .chip{
+  background:rgba(7,16,24,.76)!important;
+  color:var(--cockpit-text)!important;
+  border-color:var(--cockpit-border)!important;
+}
+body.design-cockpit select{
+  width:100%;
+  min-height:46px;
+  border-radius:16px;
+  border:1px solid var(--cockpit-border);
+  padding:0 12px;
+  font:inherit;
+}
+body.design-cockpit input:focus,
+body.design-cockpit select:focus{
+  border-color:rgba(18,161,80,.76)!important;
+  box-shadow:0 0 0 4px rgba(18,161,80,.16)!important;
+}
+body.design-cockpit .suggestion:active,
+body.design-cockpit .chip:active{
+  background:rgba(18,161,80,.18)!important;
+}
+body.design-cockpit .suggestion small{
+  color:var(--cockpit-muted)!important;
+}
+
+body.design-cockpit button{
+  background:linear-gradient(180deg,rgba(31,46,63,.94),rgba(15,24,34,.94))!important;
+  color:var(--cockpit-text)!important;
+  border-color:var(--cockpit-border)!important;
+  border-radius:14px!important;
+}
+body.design-cockpit button:active{
+  transform:scale(.986);
+}
+body.design-cockpit .primary-btn{
+  background:linear-gradient(180deg,#16b861,#0e8642)!important;
+  color:#fff!important;
+  border-color:rgba(95,255,170,.30)!important;
+  box-shadow:0 10px 26px rgba(18,161,80,.24)!important;
+}
+body.design-cockpit .secondary-btn{
+  background:linear-gradient(180deg,rgba(22,34,49,.94),rgba(10,17,24,.94))!important;
+  color:var(--cockpit-text)!important;
+}
+
+body.design-cockpit .route-card{
+  border-radius:21px!important;
+}
+body.design-cockpit .route-main strong{
+  font-weight:950!important;
+}
+body.design-cockpit .route-main span{
+  color:var(--cockpit-green-2)!important;
+  font-weight:950!important;
+  font-variant-numeric:tabular-nums;
+}
+body.design-cockpit .next-instruction{
+  background:linear-gradient(180deg,rgba(47,125,246,.18),rgba(47,125,246,.10))!important;
+  color:#cfe2ff!important;
+  border:1px solid rgba(47,125,246,.22)!important;
+  border-radius:var(--cockpit-radius-sm)!important;
+}
+body.design-cockpit .route-warning{
+  background:linear-gradient(180deg,rgba(245,185,63,.18),rgba(245,185,63,.10))!important;
+  color:#ffe19a!important;
+  border:1px solid rgba(245,185,63,.22)!important;
+}
+body.design-cockpit .advanced-route-btn{
+  background:rgba(245,185,63,.10)!important;
+  color:#ffe19a!important;
+  border-color:rgba(245,185,63,.22)!important;
+}
+body.design-cockpit .share-destination-btn,
+body.design-cockpit .route-close-btn{
+  background:linear-gradient(180deg,rgba(31,46,63,.96),rgba(12,21,30,.96))!important;
+  color:var(--cockpit-text)!important;
+  border-color:var(--cockpit-border-strong)!important;
+}
+body.design-cockpit .route-close-btn{
+  color:#ffd5d5!important;
+}
+
+body.design-cockpit .nav-top{
+  background:linear-gradient(160deg,#13a452,#0d783a)!important;
+  border:1px solid rgba(172,255,210,.22)!important;
+  border-radius:20px!important;
+  box-shadow:0 18px 52px rgba(7,16,24,.42),0 0 0 1px rgba(255,255,255,.05) inset!important;
+}
+body.design-cockpit .nav-top small{
+  color:rgba(232,255,242,.82)!important;
+}
+body.design-cockpit .nav-top strong,
+body.design-cockpit .nav-top span{
+  color:#fff!important;
+}
+body.design-cockpit .nav-bottom{
+  border-radius:20px!important;
+}
+body.design-cockpit .nav-bottom strong{
+  color:var(--cockpit-text)!important;
+  font-variant-numeric:tabular-nums;
+}
+body.design-cockpit .resume-follow-btn{
+  background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(226,232,240,.92))!important;
+  color:#0b131b!important;
+  border-color:rgba(7,16,24,.16)!important;
+}
+body.design-cockpit.dark .resume-follow-btn{
+  background:linear-gradient(180deg,rgba(28,42,58,.98),rgba(10,17,24,.96))!important;
+  color:var(--cockpit-text)!important;
+  border-color:var(--cockpit-border-strong)!important;
+}
+
+body.design-cockpit .step-map-marker,
+body.design-cockpit .step-list-number{
+  background:linear-gradient(180deg,#2f7df6,#155bd2)!important;
+}
+body.design-cockpit .step-map-marker.active,
+body.design-cockpit #stepsList li.active-step .step-list-number{
+  background:linear-gradient(180deg,#f5b93f,#f97316)!important;
+}
+body.design-cockpit #stepsList li{
+  border-color:rgba(148,163,184,.18)!important;
+}
+body.design-cockpit .step-list-btn{
+  color:var(--cockpit-text)!important;
+}
+body.design-cockpit #stepsList li.active-step .step-list-btn{
+  background:rgba(245,185,63,.14)!important;
+}
+body.design-cockpit .tap-sheet code{
+  background:rgba(7,16,24,.70)!important;
+  color:#dce6f3!important;
+  border:1px solid var(--cockpit-border)!important;
+}
+
+body.design-cockpit .toast{
+  background:rgba(7,16,24,.94)!important;
+  color:var(--cockpit-text)!important;
+  border:1px solid var(--cockpit-border)!important;
+  box-shadow:0 16px 48px rgba(0,0,0,.45)!important;
+}
+
+body.design-cockpit .route-card.ui-card-in,
+body.design-cockpit .tap-sheet.ui-card-in,
+body.design-cockpit .steps-sheet.ui-card-in,
+body.design-cockpit .settings-sheet.ui-card-in,
+body.design-cockpit .nav-bottom.ui-card-in{
+  animation:cockpitCardInV631 .26s cubic-bezier(.2,.9,.25,1) both!important;
+}
+body.design-cockpit .route-card.ui-card-out,
+body.design-cockpit .tap-sheet.ui-card-out,
+body.design-cockpit .steps-sheet.ui-card-out,
+body.design-cockpit .settings-sheet.ui-card-out,
+body.design-cockpit .nav-bottom.ui-card-out{
+  animation:cockpitCardOutV631 .20s ease both!important;
+}
+body.design-cockpit .panel.ui-card-in .panel-content{
+  animation:cockpitPanelContentInV631 .25s cubic-bezier(.2,.9,.25,1) both!important;
+}
+body.design-cockpit .panel.ui-card-out .panel-content{
+  animation:cockpitPanelContentOutV631 .18s ease both!important;
+}
+@keyframes cockpitCardInV631{
+  from{opacity:0;transform:translateY(18px) scale(.985);filter:blur(1.5px)}
+  70%{opacity:1;transform:translateY(-1px) scale(1.002);filter:blur(0)}
+  to{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}
+}
+@keyframes cockpitCardOutV631{
+  from{opacity:1;transform:translateY(0) scale(1)}
+  to{opacity:0;transform:translateY(14px) scale(.985)}
+}
+@keyframes cockpitPanelContentInV631{
+  from{opacity:0;transform:translateY(-9px) scale(.985)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes cockpitPanelContentOutV631{
+  from{opacity:1;transform:translateY(0) scale(1)}
+  to{opacity:0;transform:translateY(-8px) scale(.985)}
+}
+
+@media (max-width:699px){
+  body.design-cockpit .panel,
+  body.design-cockpit .route-card,
+  body.design-cockpit .nav-bottom,
+  body.design-cockpit .tap-sheet,
+  body.design-cockpit .steps-sheet,
+  body.design-cockpit .settings-sheet{
+    border-radius:19px!important;
+  }
+  body.design-cockpit .nav-top{
+    border-radius:19px!important;
+  }
+  body.design-cockpit .route-actions .primary-btn{
+    border-radius:15px!important;
+  }
+}

@@ -7,15 +7,15 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="30maps">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>30maps - A-Traktor Navigator V6.2.3</title>
+  <title>30maps - A-Traktor Navigator V6.3.1</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="./style.css?v=623">
+  <link rel="stylesheet" href="./style.css?v=631">
 </head>
 <body>
   <div id="map"></div>
-  <div id="betaBadge" class="beta-badge">BETA · v6.2.3</div>
+  <div id="betaBadge" class="beta-badge">BETA · v6.3.1</div>
 
   <div id="boot" class="boot">
     <div class="boot-card">
@@ -140,6 +140,17 @@
     </header>
 
     <div class="settings-block">
+      <strong>🎛 Designläge</strong>
+      <p>Välj om appen ska använda nya 30maps Cockpit-stilen eller den äldre klassiska designen. Valet sparas på den här enheten.</p>
+
+      <label for="designModeSelect">Design</label>
+      <select id="designModeSelect">
+        <option value="cockpit">30maps Cockpit</option>
+        <option value="classic">Klassisk design</option>
+      </select>
+    </div>
+
+    <div class="settings-block">
       <strong>⛽ Bränsle</strong>
       <p>Fyll i medelförbrukning för att visa ungefärlig bränsleåtgång och kostnad i ruttkortet.</p>
 
@@ -173,7 +184,7 @@
   <div id="toast" class="toast hidden"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="./config.js?v=623"></script>
-  <script src="./app.js?v=623"></script>
+  <script src="./config.js?v=631"></script>
+  <script src="./app.js?v=631"></script>
 </body>
 </html>

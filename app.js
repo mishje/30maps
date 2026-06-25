@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "6.2.3";
+  const VERSION = "6.3.1";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
@@ -71,6 +71,7 @@
     closeStepsBtn: document.getElementById("closeStepsBtn"),
     settingsSheet: document.getElementById("settingsSheet"),
     closeSettingsBtn: document.getElementById("closeSettingsBtn"),
+    designModeSelect: document.getElementById("designModeSelect"),
     fuelConsumptionInput: document.getElementById("fuelConsumptionInput"),
     fuelPriceInput: document.getElementById("fuelPriceInput"),
     saveFuelSettingsBtn: document.getElementById("saveFuelSettingsBtn"),
@@ -152,6 +153,7 @@
     stepMarkers: [],
     highlightedStepIndex: -1,
     fuelSettings: { consumptionLPerMil: 0, pricePerLiter: 0 },
+    designMode: "cockpit",
     routeMetaPrimary: "",
     routeMetaFuel: "",
     routeMetaCycleTimer: null,
@@ -299,6 +301,32 @@
     return value.toFixed(decimals).replace(".", ",").replace(/,?0+$/, "");
   }
 
+  function normalizeDesignMode(value) {
+    return value === "classic" ? "classic" : "cockpit";
+  }
+
+  function applyDesignMode(mode) {
+    state.designMode = normalizeDesignMode(mode);
+    document.body.classList.toggle("design-classic", state.designMode === "classic");
+    document.body.classList.toggle("design-cockpit", state.designMode === "cockpit");
+
+    if (el.designModeSelect) {
+      el.designModeSelect.value = state.designMode;
+    }
+  }
+
+  function loadDesignMode() {
+    // Första besök: Cockpit. Om användaren byter sparas valet lokalt.
+    applyDesignMode(normalizeDesignMode(storageGet("30maps:designMode", "cockpit")));
+  }
+
+  function saveDesignMode(mode) {
+    const normalized = normalizeDesignMode(mode);
+    storageSet("30maps:designMode", normalized);
+    applyDesignMode(normalized);
+    toast(normalized === "classic" ? "Klassisk design vald" : "30maps Cockpit vald");
+  }
+
   function loadFuelSettings() {
     const saved = storageGet("30maps:fuelSettings", {});
     state.fuelSettings = {
@@ -315,7 +343,11 @@
     storageSet("30maps:fuelSettings", state.fuelSettings);
   }
 
-  function renderFuelSettingsForm() {
+  function renderSettingsForm() {
+    if (el.designModeSelect) {
+      el.designModeSelect.value = state.designMode || "cockpit";
+    }
+
     if (!el.fuelConsumptionInput || !el.fuelPriceInput) return;
     el.fuelConsumptionInput.value = state.fuelSettings.consumptionLPerMil
       ? formatFuelNumber(state.fuelSettings.consumptionLPerMil, 2)
@@ -325,8 +357,12 @@
       : "";
   }
 
+  function renderFuelSettingsForm() {
+    renderSettingsForm();
+  }
+
   function showSettings() {
-    renderFuelSettingsForm();
+    renderSettingsForm();
     showUiCard(el.settingsSheet);
   }
 
@@ -1268,7 +1304,7 @@
       const km = (route.distance / 1000).toFixed(1);
       const eta = etaFromMeters(route.distance);
       el.routeTitle.textContent = shortName(dest.label);
-      el.routeSubtitle.textContent = `${result.chosen.summary || result.chosen.name} · 30 km/h`;
+      el.routeSubtitle.textContent = `🚜 ${result.chosen.summary || result.chosen.name} · 30 km/h`;
       setRouteMeta(`${km} km · ${eta}`, route.distance);
 
       updateStepsUI();
@@ -2122,6 +2158,38 @@
     });
   }
 
+  function focusStepPointOnMap(point, targetZoom) {
+    if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lon)) return;
+
+    if (!state.navigating || isDesktopLayout()) {
+      map.flyTo([point.lat, point.lon], targetZoom, { animate: true, duration: 0.35 });
+      return;
+    }
+
+    map.invalidateSize();
+
+    const size = map.getSize();
+    const navTopRect = el.navTop && !el.navTop.classList.contains("hidden")
+      ? el.navTop.getBoundingClientRect()
+      : null;
+    const stepsRect = el.stepsSheet && !el.stepsSheet.classList.contains("hidden")
+      ? el.stepsSheet.getBoundingClientRect()
+      : null;
+
+    const topLimit = navTopRect ? navTopRect.bottom + 28 : Math.max(104, size.y * 0.18);
+    const bottomLimit = stepsRect ? stepsRect.top - 24 : size.y * 0.56;
+    const desiredY = clamp((topLimit + bottomLimit) / 2, topLimit + 20, Math.max(topLimit + 42, bottomLimit - 30));
+    const desiredX = size.x * 0.5;
+
+    const projected = map.project([point.lat, point.lon], targetZoom);
+    const centerPoint = L.point(
+      projected.x + size.x / 2 - desiredX,
+      projected.y + size.y / 2 - desiredY
+    );
+    const targetCenter = map.unproject(centerPoint, targetZoom);
+    map.setView(targetCenter, targetZoom, { animate: true });
+  }
+
   function highlightStepMarker(index, focusMap = false) {
     const steps = state.route?.instructions || [];
     const step = steps[index];
@@ -2141,8 +2209,10 @@
 
     if (focusMap) {
       if (state.navigating && state.follow) setFollowMode(false, false);
-      const targetZoom = Math.max(map.getZoom(), isDesktopLayout() ? 16 : 17);
-      map.flyTo([p.lat, p.lon], targetZoom, { animate: true, duration: 0.35 });
+      const targetZoom = isDesktopLayout()
+        ? Math.min(Math.max(map.getZoom(), 15), 16)
+        : Math.min(Math.max(map.getZoom(), 15), 16);
+      focusStepPointOnMap(p, targetZoom);
     }
   }
 
@@ -2180,12 +2250,23 @@
   function showSteps() {
     updateStepsUI();
     showStepMarkers();
+    document.body.classList.add("steps-open");
     showUiCard(el.stepsSheet);
   }
 
   function hideSteps() {
     clearStepMarkers();
+    document.body.classList.remove("steps-open");
     hideUiCard(el.stepsSheet);
+
+    // Om man har tryckt på ett steg och kartan zoomat dit ska Stäng återgå till körläge.
+    if (state.navigating) {
+      state.highlightedStepIndex = -1;
+      setFollowMode(true, false, { delayResumeHide: true });
+      window.setTimeout(() => {
+        if (state.follow && state.userPos) enterDrivingView();
+      }, 80);
+    }
   }
 
   function enterNavigationMode(showToast = true) {
@@ -2218,6 +2299,9 @@
   }
 
   function exitNavigationMode() {
+    clearStepMarkers();
+    hideUiCard(el.stepsSheet, null, false);
+    document.body.classList.remove("steps-open");
     state.navigating = false;
     state.offRouteHits = 0;
     state.lastNavStepKey = "";
@@ -2226,6 +2310,7 @@
     state.turnLock = null;
     state.turnLockReleasedKey = "";
     document.body.classList.remove("navigating");
+    document.body.classList.remove("steps-open");
     state.navRerouteStatusUntil = 0;
     updateResumeFollowButton();
     restoreFullRouteLine();
@@ -2517,6 +2602,7 @@
     if (el.routeAdvancedBtn) el.routeAdvancedBtn.classList.add("hidden");
     el.nextInstruction.classList.add("hidden");
     hideUiCard(el.stepsSheet, null, false);
+    document.body.classList.remove("steps-open");
     clearStepMarkers();
     hideUiCard(el.tapSheet, null, false);
     hideUiCard(el.settingsSheet, null, false);
@@ -2570,6 +2656,9 @@
   }
 
   function exitNavigationModeSilently() {
+    clearStepMarkers();
+    hideUiCard(el.stepsSheet, null, false);
+    document.body.classList.remove("steps-open");
     state.navigating = false;
     state.offRouteHits = 0;
     state.lastNavStepKey = "";
@@ -3199,7 +3288,7 @@
     document.body.classList.remove("demo-active");
 
     if (el.betaBadge) {
-      el.betaBadge.textContent = "BETA · v6.2.3.1.1";
+      el.betaBadge.textContent = "BETA · v6.3.1";
       el.betaBadge.title = "Klicka för att dölja. Håll inne för testresa.";
     }
 
@@ -3336,6 +3425,7 @@
 
     if (el.settingsBtn) el.settingsBtn.addEventListener("click", showSettings);
     if (el.closeSettingsBtn) el.closeSettingsBtn.addEventListener("click", hideSettings);
+    if (el.designModeSelect) el.designModeSelect.addEventListener("change", () => saveDesignMode(el.designModeSelect.value));
     if (el.saveFuelSettingsBtn) el.saveFuelSettingsBtn.addEventListener("click", saveFuelSettingsFromForm);
     if (el.clearFuelSettingsBtn) el.clearFuelSettingsBtn.addEventListener("click", clearFuelSettings);
 
@@ -3372,6 +3462,7 @@
   }
 
   function init() {
+    loadDesignMode();
     if (storageGet("30maps:dark", false)) document.body.classList.add("dark");
     loadFuelSettings();
     renderFuelSettingsForm();

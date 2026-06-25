@@ -1,5 +1,37 @@
 # 30maps versionshistorik
 
+## V6.3.1
+- Lägg till designläge i Inställningar: 30maps Cockpit och Klassisk design.
+- Första besök startar i Cockpit om inget annat val är sparat.
+- Designval sparas lokalt med `localStorage`.
+- Separera designläge från ljust/mörkt tema.
+- Scope:a Cockpit-stilen till `body.design-cockpit` så Klassisk design kan använda gamla utseendet.
+- Fixa versionsrutan så den inte blir felaktigt grön i något läge.
+- Nya designreglaget stylas i både Cockpit och Klassisk design.
+- Framtida UI ska fungera i både Cockpit och Klassisk design.
+
+## V6.3
+- Inför “30maps Cockpit”-designriktning.
+- Ny mörkare palett med mörk asfalt, 30maps-grön, blå sekundärfärg och orange varning.
+- Overlay-kort får mer instrumentpanel-/cockpit-känsla.
+- Korten görs lite mer rektangulära men fortfarande rundade.
+- Sök/favorit-panel, ruttkort, körkort, svängkort, stegkort, vald plats, inställningar, toast och versionsbadge får mer sammanhållen stil.
+- Kortöppning/stängning får mer konsekventa cockpit-animationer.
+- Manuell avslutning av aktiv navigation stänger även öppen stegruta, tar bort stegmarkörer och rensar `steps-open`.
+
+## V6.2.5
+- Stegkortet sänks så det ligger närmare nedersta “km kvar”-kortet på telefon.
+- `steps-open`-klass används när stegrutan är öppen.
+- “Tillbaka till körläge”-knappen flyttas ovanför stegkortet när stegrutan är öppen.
+- Klick på steg zoomar ut lite mer för bättre överblick.
+
+## V6.2.4
+- Stegrutan öppnas inte längre automatiskt när navigation startar.
+- `Stäng` döljer stegrutan på riktigt och tar bort stegmarkörer.
+- Efter att man valt ett steg och kartan zoomat dit återgår `Stäng` automatiskt till körläge/följläge.
+- Stegrutan placeras ovanför nedersta körkortet under aktiv navigation.
+- När man trycker på ett steg placeras stegpunkten ovanför stegrutan i synlig kartyta.
+
 ## V6.2.3
 - “Tillbaka till körläge”-knappen flyttas upp så den inte ligger ovanpå nedersta körkortet.
 - Färgtemat för “Tillbaka till körläge” rättas: ljus knapp i ljust läge och mörk knapp i mörkt läge.
