@@ -1479,3 +1479,56 @@ body.dark #stepsList li.active-step .step-list-btn{
     right:56px!important;
   }
 }
+
+
+/* =========================
+   V6.2.2: ruttkortets metarad under toppknapparna
+   ========================= */
+
+@media (max-width:699px){
+  #routeCard .route-main{
+    display:block!important;
+    padding-right:104px!important;
+  }
+
+  #routeCard .route-main > div{
+    min-width:0!important;
+  }
+
+  #routeCard .route-main span{
+    display:block!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:none!important;
+    margin-top:7px!important;
+    padding-top:6px!important;
+    text-align:left!important;
+    white-space:nowrap!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    font-size:14.5px!important;
+    line-height:1.1!important;
+  }
+
+  #routeCard .route-main span.route-meta-fade{
+    transform:translateY(2px)!important;
+  }
+}
+
+@media (min-width:700px){
+  #routeCard .route-share-btn{
+    width:34px!important;
+    min-width:34px!important;
+    height:34px!important;
+    min-height:34px!important;
+    padding:0!important;
+    top:13px!important;
+    right:56px!important;
+    font-size:17px!important;
+    box-shadow:0 5px 14px rgba(0,0,0,.14)!important;
+  }
+
+  #routeCard .route-main{
+    padding-right:98px!important;
+  }
+}

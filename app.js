@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "6.2.1";
+  const VERSION = "6.2.2";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
@@ -3199,7 +3199,7 @@
     document.body.classList.remove("demo-active");
 
     if (el.betaBadge) {
-      el.betaBadge.textContent = "BETA · v6.2.1.1.1";
+      el.betaBadge.textContent = "BETA · v6.2.2.1.1";
       el.betaBadge.title = "Klicka för att dölja. Håll inne för testresa.";
     }
 

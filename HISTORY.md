@@ -1,5 +1,10 @@
 # 30maps versionshistorik
 
+## V6.2.2
+- Distans/tid och bränsle/kostnad i ruttkortet flyttas till egen rad under toppområdet på mobil.
+- Metaraden hamnar inte längre under eller bakom Dela/Stäng-knapparna.
+- Dela-knappen på dator görs mindre när den bara visar ikonen `↗`.
+
 Det här dokumentet följer med ZIP-packningarna från och med V6.2.1 och ska uppdateras vid varje ny version. Äldre historik är rekonstruerad från projektets tidigare byggen och anteckningar, så de tidigaste versionerna kan vara mindre detaljerade.
 
 ## V6.2.1
