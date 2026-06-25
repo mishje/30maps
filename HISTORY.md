@@ -1,5 +1,13 @@
 # 30maps versionshistorik
 
+## V6.4
+- Stegrutan görs mindre på telefon under aktiv navigation.
+- Vid många steg visas ungefär 1–4 steg åt gången; resten scrollas.
+- Stegrutan ligger fortsatt precis ovanför nedersta “km kvar”-kortet.
+- Smart körvy beta införs: fordonspilens riktning tas i första hand från rutten framför bilen, med GPS-heading och rörelse som fallback.
+- Riktningen mjukas ut för att minska ryck.
+- Ändringarna fungerar i både Cockpit och Klassisk design.
+
 ## V6.3.1
 - Lägg till designläge i Inställningar: 30maps Cockpit och Klassisk design.
 - Första besök startar i Cockpit om inget annat val är sparat.

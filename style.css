@@ -2019,3 +2019,56 @@ body.design-cockpit .panel.ui-card-out .panel-content{
     border-radius:15px!important;
   }
 }
+
+
+/* =========================
+   V6.4: kompakt steglista och smart körvy
+   ========================= */
+
+/* Stegrutan ska visa ungefär 1–4 steg på telefon under aktiv navigation. */
+@media (max-width:699px){
+  body.navigating .steps-sheet:not(.hidden){
+    bottom:calc(max(12px,env(safe-area-inset-bottom)) + 112px)!important;
+    max-height:min(27vh,236px)!important;
+  }
+
+  body.navigating .steps-sheet:not(.hidden) #stepsList{
+    max-height:min(calc(27vh - 58px),168px)!important;
+    overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+
+  body.navigating .steps-sheet:not(.hidden) .step-list-btn{
+    min-height:38px!important;
+    padding:5px 5px!important;
+  }
+
+  body.navigating .steps-sheet:not(.hidden) .step-list-number{
+    width:24px!important;
+    min-width:24px!important;
+    height:24px!important;
+  }
+
+  body.navigating .steps-sheet:not(.hidden) .step-list-text{
+    font-size:13.2px!important;
+    line-height:1.15!important;
+  }
+
+  body.navigating.steps-open .resume-follow-btn:not(.hidden){
+    bottom:calc(max(12px,env(safe-area-inset-bottom)) + 112px + 246px)!important;
+  }
+}
+
+/* Smart körvy: fordonspilen stabiliseras efter rutten framför bilen när navigation är aktiv. */
+.user-dot-wrap{
+  transition:transform .24s linear!important;
+}
+.user-dot-wrap.smart-heading .user-heading{
+  border-bottom-color:rgba(18,161,80,.68)!important;
+}
+body.design-cockpit .user-dot-wrap.smart-heading .user-heading{
+  border-bottom-color:rgba(22,184,97,.72)!important;
+}
+body.design-cockpit .user-dot-wrap.smart-heading .user-dot{
+  background:#12a150!important;
+}

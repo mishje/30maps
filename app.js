@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "6.3.1";
+  const VERSION = "6.4";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
@@ -93,6 +93,8 @@
     userPos: null,
     userAccuracy: null,
     userHeading: null,
+    gpsHeading: null,
+    displayHeading: null,
     follow: true,
     panelCollapsed: false,
     navigating: false,
@@ -504,6 +506,67 @@
     return Math.max(min, Math.min(max, value));
   }
 
+  function normalizeHeading(deg) {
+    if (!Number.isFinite(deg)) return null;
+    return ((deg % 360) + 360) % 360;
+  }
+
+  function headingDelta(from, to) {
+    return ((to - from + 540) % 360) - 180;
+  }
+
+  function bearingBetween(a, b) {
+    if (!a || !b) return null;
+    const lat1 = a.lat * Math.PI / 180;
+    const lat2 = b.lat * Math.PI / 180;
+    const dLon = (b.lon - a.lon) * Math.PI / 180;
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) -
+      Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    return normalizeHeading(Math.atan2(y, x) * 180 / Math.PI);
+  }
+
+  function smoothHeading(current, target, factor = 0.34) {
+    const normalizedTarget = normalizeHeading(target);
+    if (normalizedTarget === null) return current;
+    const normalizedCurrent = normalizeHeading(current);
+    if (normalizedCurrent === null) return normalizedTarget;
+    return normalizeHeading(normalizedCurrent + headingDelta(normalizedCurrent, normalizedTarget) * factor);
+  }
+
+  function routeBearingAhead(lat, lon) {
+    if (!state.navigating || !state.route || !state.route.coords || state.route.coords.length < 2) return null;
+
+    const progress = getCameraRouteProgress(lat, lon);
+    if (!progress || progress.offRouteDistance > OFF_ROUTE_METERS * 2.5) return null;
+
+    const base = progress.point
+      ? { lat: progress.point[0], lon: progress.point[1] }
+      : { lat, lon };
+    const lookahead = clamp(cameraLookaheadMeters(progress.distanceAlong) * 0.18, 28, 76);
+    const ahead = routePointAtDistanceAlong(progress.distanceAlong + lookahead);
+    return bearingBetween(base, ahead);
+  }
+
+  function updateSmartUserHeading(lat, lon, previousPos = null) {
+    const routeHeading = routeBearingAhead(lat, lon);
+    let target = routeHeading;
+
+    if (target === null && typeof state.gpsHeading === "number" && Number.isFinite(state.gpsHeading)) {
+      target = state.gpsHeading;
+    }
+
+    if (target === null && previousPos && haversine(previousPos, { lat, lon }) > 5) {
+      target = bearingBetween(previousPos, { lat, lon });
+    }
+
+    if (target === null) return;
+
+    const factor = routeHeading !== null ? 0.42 : 0.30;
+    state.displayHeading = smoothHeading(state.displayHeading, target, factor);
+    state.userHeading = state.displayHeading;
+  }
+
   function storageGet(key, fallback) {
     try {
       const value = JSON.parse(localStorage.getItem(key));
@@ -751,10 +814,11 @@
   }
 
   function makeUserIcon() {
-    const heading = state.userHeading ?? 0;
+    const heading = normalizeHeading(state.displayHeading ?? state.userHeading ?? 0) ?? 0;
+    const smart = state.navigating && state.route ? " smart-heading" : "";
     return L.divIcon({
       className: "",
-      html: `<div class="user-dot-wrap" style="transform:rotate(${heading}deg)">
+      html: `<div class="user-dot-wrap${smart}" style="transform:rotate(${heading}deg)">
                <div class="user-heading"></div>
                <div class="user-dot"></div>
              </div>`,
@@ -1030,12 +1094,15 @@
       if (state.demoActive) return;
     }
 
+    const previousPos = state.userPos ? { ...state.userPos } : null;
     state.userPos = { lat, lon };
     state.userAccuracy = pos.coords.accuracy || null;
 
     if (typeof pos.coords.heading === "number" && !Number.isNaN(pos.coords.heading)) {
-      state.userHeading = pos.coords.heading;
+      state.gpsHeading = normalizeHeading(pos.coords.heading);
     }
+
+    updateSmartUserHeading(lat, lon, previousPos);
 
     if (!state.userMarker) {
       state.userMarker = L.marker([lat, lon], { icon: makeUserIcon(), interactive: false }).addTo(map);
@@ -1904,6 +1971,7 @@
     if (state.arrivedHandled) return;
     state.arrivedHandled = true;
     state.navigating = false;
+    if (state.userMarker) state.userMarker.setIcon(makeUserIcon());
     state.offRouteHits = 0;
     state.lastNavStepKey = "";
     state.navDisplayedStepKey = "";
@@ -2288,6 +2356,8 @@
     state.offRouteHits = 0;
     state.arrivedHandled = false;
     document.body.classList.add("navigating");
+    if (state.userPos) updateSmartUserHeading(state.userPos.lat, state.userPos.lon, state.userPos);
+    if (state.userMarker) state.userMarker.setIcon(makeUserIcon());
     setRouteCompactMode();
     el.navTop.classList.remove("hidden");
     el.navBottom.classList.remove("hidden");
@@ -3288,7 +3358,7 @@
     document.body.classList.remove("demo-active");
 
     if (el.betaBadge) {
-      el.betaBadge.textContent = "BETA · v6.3.1";
+      el.betaBadge.textContent = "BETA · v6.4";
       el.betaBadge.title = "Klicka för att dölja. Håll inne för testresa.";
     }
 
