@@ -1,5 +1,11 @@
 # 30maps versionshistorik
 
+## V6.2.3
+- “Tillbaka till körläge”-knappen flyttas upp så den inte ligger ovanpå nedersta körkortet.
+- Färgtemat för “Tillbaka till körläge” rättas: ljus knapp i ljust läge och mörk knapp i mörkt läge.
+- Steglistan görs kompaktare på telefon under aktiv navigation.
+- Stegrutan får lägre maxhöjd och listan scrollar, så kartan/rutten syns bättre.
+
 ## V6.2.2
 - Distans/tid och bränsle/kostnad i ruttkortet flyttas till egen rad under toppområdet på mobil.
 - Metaraden hamnar inte längre under eller bakom Dela/Stäng-knapparna.

@@ -1532,3 +1532,88 @@ body.dark #stepsList li.active-step .step-list-btn{
     padding-right:98px!important;
   }
 }
+
+
+/* =========================
+   V6.2.3: körlägeknapp och kompakt steglista under navigation
+   ========================= */
+
+/* Tillbaka till körläge ska ligga ovanför nedersta körkortet och följa temat normalt. */
+.resume-follow-btn{
+  bottom:calc(max(12px,env(safe-area-inset-bottom)) + 132px)!important;
+  background:rgba(255,255,255,.94)!important;
+  color:#111821!important;
+  border:1px solid rgba(17,24,39,.16)!important;
+  box-shadow:0 12px 34px rgba(0,0,0,.24)!important;
+}
+body.dark .resume-follow-btn{
+  background:rgba(17,24,39,.94)!important;
+  color:#f5f7fb!important;
+  border-color:rgba(255,255,255,.18)!important;
+  box-shadow:0 14px 42px rgba(0,0,0,.42)!important;
+}
+
+/* Under aktiv navigation ska stegrutan inte ta över kartan. */
+@media (max-width:699px){
+  body.navigating .steps-sheet{
+    left:10px!important;
+    right:10px!important;
+    bottom:calc(max(12px,env(safe-area-inset-bottom)) + 92px)!important;
+    max-height:44vh!important;
+    padding:10px!important;
+    border-radius:21px!important;
+    display:flex!important;
+    flex-direction:column!important;
+  }
+
+  body.navigating .steps-sheet header{
+    margin-bottom:5px!important;
+    flex-shrink:0!important;
+  }
+
+  body.navigating .steps-sheet header strong{
+    font-size:16px!important;
+  }
+
+  body.navigating .steps-sheet #closeStepsBtn{
+    min-height:38px!important;
+    padding:0 12px!important;
+    border-radius:14px!important;
+    font-size:13px!important;
+  }
+
+  body.navigating #stepsList{
+    max-height:calc(44vh - 62px)!important;
+    overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+    padding-bottom:2px!important;
+  }
+
+  body.navigating #stepsList li{
+    border-bottom:1px solid rgba(148,163,184,.18)!important;
+  }
+
+  body.navigating .step-list-btn{
+    min-height:40px!important;
+    padding:6px 5px!important;
+    gap:8px!important;
+    border-radius:12px!important;
+  }
+
+  body.navigating .step-list-number{
+    width:25px!important;
+    min-width:25px!important;
+    height:25px!important;
+    font-size:12px!important;
+  }
+
+  body.navigating .step-list-text{
+    font-size:13.5px!important;
+    line-height:1.18!important;
+  }
+
+  body.navigating .step-list-text small{
+    margin-top:1px!important;
+    font-size:11.5px!important;
+  }
+}
