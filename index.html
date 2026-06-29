@@ -7,15 +7,15 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="30maps">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>30maps - A-Traktor Navigator V6.6.7</title>
+  <title>30maps - A-Traktor Navigator V6.6.8</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="./style.css?v=667">
+  <link rel="stylesheet" href="./style.css?v=668">
 </head>
 <body>
   <div id="map"></div>
-  <div id="betaBadge" class="beta-badge">BETA · v6.6.7</div>
+  <div id="betaBadge" class="beta-badge">BETA · v6.6.8</div>
 
   <div id="boot" class="boot">
     <div class="boot-card">
@@ -141,7 +141,8 @@
 
     <div class="settings-block">
       <strong>🎛 Designläge</strong>
-      <p>Välj om appen ska använda nya 30maps Cockpit-stilen eller den äldre klassiska designen. Valet sparas på den här enheten.</p>
+      <p>Välj om appen ska använda nya 30maps Cockpit-stilen eller den äldre klassiska designen.</p>
+      <small class="settings-save-note">Sparas direkt när du byter.</small>
 
       <label for="designModeSelect">Design</label>
       <select id="designModeSelect">
@@ -153,6 +154,7 @@
     <div class="settings-block">
       <strong>🧭 Kartläge</strong>
       <p>I körning används Smart körvy som säkert standardläge. Färdriktning uppåt är beta och kan stängas av direkt om den känns ostabil.</p>
+      <small class="settings-save-note">Sparas direkt när du byter.</small>
 
       <label for="mapModeSelect">Kartläge</label>
       <select id="mapModeSelect">
@@ -172,8 +174,8 @@
       <input id="fuelPriceInput" inputmode="decimal" placeholder="t.ex. 18,50">
 
       <div class="settings-actions">
-        <button id="saveFuelSettingsBtn" class="primary-btn">Spara</button>
-        <button id="clearFuelSettingsBtn" class="secondary-btn">Stäng av</button>
+        <button id="saveFuelSettingsBtn" class="primary-btn">Spara bränsle</button>
+        <button id="clearFuelSettingsBtn" class="secondary-btn">Stäng av bränsle</button>
       </div>
     </div>
   </section>
@@ -196,7 +198,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
-  <script src="./config.js?v=667"></script>
-  <script src="./app.js?v=667"></script>
+  <script src="./config.js?v=668"></script>
+  <script src="./app.js?v=668"></script>
 </body>
 </html>

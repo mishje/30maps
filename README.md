@@ -1,23 +1,39 @@
-# 30maps A-Traktor Navigator V6.6.7
+# 30maps A-Traktor Navigator V6.6.8
 
 GitHub Pages-ready statisk PWA för A-traktor-navigering.
 
-## V6.6.7
+## V6.6.8
 
-Bygger vidare på V6.6.6.
+Bygger vidare på V6.6.7.
 
-Fixar:
-- Heading-up roterar mjukare när den väl roterar.
-- Kartans target-bearing och faktisk map-bearing separeras.
-- `requestAnimationFrame` används för att glida kartans bearing mot target i små steg.
-- Rotationens hastighet är adaptiv:
-  - små ändringar glider lugnare
-  - större riktningsändringar får komma ikapp snabbare men utan hopp
-- Route-corridor från V6.6.6 behålls.
-- Smart körvy påverkas inte.
+Fixar/nytt:
+- Tydligare inställningar:
+  - “Spara” är nu “Spara bränsle”.
+  - “Stäng av” är nu “Stäng av bränsle”.
+  - Designläge och kartläge visar att de sparas direkt.
+- Versionsbadgen är ren: ingen extra “Smart fallback”-text bredvid versionsnumret.
+- Wake Lock försöker hålla skärmen vaken när navigation är aktiv.
+- Mjukare övergång när användaren drar kartan från körläge:
+  - följläge pausas mjukare
+  - “Återgå till körläge”-knappen visas mjukare
+  - återgång glider tillbaka till bilen
+- Körläge startar mer inzoomat på telefon.
+- Heading-up får turn-gate:
+  - kartan tittar inte lika långt förbi en tydlig sväng för tidigt
+  - ny riktning blandas in närmare själva svängen
+- Ruttvalet får komfortlogik:
+  - rakare/enklare vägar prioriteras mer
+  - många kurvor, korta segment och många svängar straffas
+  - onödiga småvägsgenvägar ska vinna mer sällan
+- Omruttning försöker bli mer laglig/rimlig:
+  - aktuell färdriktning används
+  - direkta U-svängar straffas
+  - flera startpunkter längre fram kan testas
+  - rutten ska hellre fortsätta framåt till rimlig väg tillbaka
 
 Behåller:
-- V6.6.6: route-corridor för att ignorera små böjar som går tillbaka.
+- V6.6.7: mjuk requestAnimationFrame-baserad heading-up-rotation.
+- V6.6.6: route-corridor.
 - V6.6.4: GPS-markören ligger längre ner i heading-up.
 - V6.6.3: korrekt/inverterad bearing.
 - V6.6.2: riktig Leaflet-rotation via `leaflet-rotate`.
@@ -25,7 +41,7 @@ Behåller:
 - Cockpit och Klassisk design stöds.
 
 Cache:
-- `style.css?v=667`
-- `app.js?v=667`
-- `config.js?v=667`
-- Service worker-cache: `30maps-v667`
+- `style.css?v=668`
+- `app.js?v=668`
+- `config.js?v=668`
+- Service worker-cache: `30maps-v668`

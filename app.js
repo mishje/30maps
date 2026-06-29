@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "6.6.7";
+  const VERSION = "6.6.8";
   const MAX_ATRAKTOR_KMH = 30;
   const DEFAULT_VIEW = [56.879, 14.805];
   const SWEDEN_BBOX = "10.0,55.0,24.5,69.2"; // lon_min,lat_min,lon_max,lat_max
@@ -14,12 +14,12 @@
   const TURN_LOCK_BEFORE_METERS = 50;
   const TURN_LOCK_AFTER_METERS = 60;
   const TURN_LOCK_CLOSE_AFTER_METERS = 10;
-  const DRIVE_START_ZOOM_MOBILE = 17;
+  const DRIVE_START_ZOOM_MOBILE = 18;
   const DRIVE_START_ZOOM_DESKTOP = 16;
   const CAMERA_LOOKAHEAD_MIN_M = 140;
   const CAMERA_LOOKAHEAD_NORMAL_M = 330;
   const CAMERA_LOOKAHEAD_MAX_M = 650;
-  const CAMERA_LOOKAHEAD_TURN_MARGIN_M = 110;
+  const CAMERA_LOOKAHEAD_TURN_MARGIN_M = 90;
   const CAMERA_LEAD_MIN_PX = 76;
   const CAMERA_LEAD_MAX_PX = 168;
 
@@ -173,7 +173,9 @@
     routeMetaShowingFuel: false,
     sharedDestinationAutoRoute: false,
     sharedDestinationOpened: false,
-    lastSharedDestinationHash: ""
+    lastSharedDestinationHash: "",
+    wakeLock: null,
+    manualMapModeTimer: null
   };
 
   const map = L.map("map", {
@@ -428,6 +430,31 @@
       state.mapRotationAnimFrame = null;
     }
     state.lastMapRotationFrameAt = 0;
+  }
+
+  async function requestWakeLock() {
+    if (!("wakeLock" in navigator) || !state.navigating || state.arrivedHandled) return;
+    try {
+      if (state.wakeLock) return;
+      state.wakeLock = await navigator.wakeLock.request("screen");
+      state.wakeLock.addEventListener("release", () => {
+        state.wakeLock = null;
+      });
+    } catch (err) {
+      console.warn("Wake Lock kunde inte aktiveras", err);
+    }
+  }
+
+  async function releaseWakeLock() {
+    const lock = state.wakeLock;
+    state.wakeLock = null;
+    if (lock) {
+      try {
+        await lock.release();
+      } catch (err) {
+        console.warn("Wake Lock kunde inte släppas", err);
+      }
+    }
   }
 
   function animateMapRotationFrame(timestamp) {
@@ -749,16 +776,29 @@
       : null;
     if (!base) return null;
 
-    // V6.6.6: route corridor. I stället för att följa varje liten krök tittar vi
-    // på flera punkter framför fordonet och avgör om hela korridoren faktiskt
-    // byter riktning. Små svängar som snart går tillbaka ska inte få kartan att jaga.
-    const samples = [
+    // V6.6.8: turn-gate. På rak väg tittar korridoren långt fram, men när en
+    // tydlig sväng närmar sig får den inte titta för långt förbi svängen för tidigt.
+    const toTurn = nextCameraInstructionDistance(progress.distanceAlong);
+    const nearTurn = Number.isFinite(toTurn) && toTurn < 125;
+
+    let samples = [
       { meters: 32, weight: 0.70 },
       { meters: 62, weight: 1.00 },
       { meters: 105, weight: 1.45 },
       { meters: 155, weight: 1.20 },
       { meters: 210, weight: 0.75 }
     ];
+
+    if (nearTurn) {
+      const gate = clamp(toTurn + 18, 38, 128);
+      const afterWeight = toTurn < 42 ? 0.95 : toTurn < 75 ? 0.48 : 0.18;
+      samples = [
+        { meters: Math.min(28, gate), weight: 1.10 },
+        { meters: Math.min(52, gate), weight: 1.35 },
+        { meters: Math.min(82, gate), weight: 1.00 },
+        { meters: Math.min(126, gate + 28), weight: afterWeight }
+      ];
+    }
 
     const headings = [];
     for (const s of samples) {
@@ -789,31 +829,36 @@
     const longDelta = current === null ? 999 : Math.abs(headingDelta(current, long));
     const returnsBack = Math.abs(headingDelta(short, long)) < 7 && Math.abs(headingDelta(short, mid)) > 8;
 
-    // Om vägen gör en liten böj men sedan fortsätter ungefär i samma riktning:
-    // håll kvar nuvarande heading. Det är detta som minskar hack i S-kurvor.
+    // Före sväng: håll kvar den nuvarande vägkänslan längre och blanda inte in
+    // vägen efter svängen förrän man faktiskt är nära.
+    if (current !== null && nearTurn && toTurn > 55 && corridorDelta < 28) {
+      const preTurn = weightedAverageHeading([
+        { heading: short, weight: 1.55 },
+        { heading: mid, weight: 1.10 },
+        { heading: current, weight: 1.20 }
+      ]);
+      return preTurn ?? current;
+    }
+
     if (current !== null && returnsBack && corridorDelta < 18) {
       return current;
     }
 
-    // Om korridoren spretar mycket, men slutriktningen inte skiljer sig tydligt:
-    // håll eller blanda mot lång/mellan-heading i stället för att följa korta krökar.
     if (current !== null && spread > 18 && longDelta < 12) {
       return current;
     }
 
-    // I krokig korridor: föredra den långsiktiga riktningen och blanda försiktigt.
     let result = avg;
     if (spread > 14) {
       const longWeighted = weightedAverageHeading([
-        { heading: mid, weight: 0.85 },
-        { heading: long, weight: 1.45 },
+        { heading: mid, weight: nearTurn ? 1.30 : 0.85 },
+        { heading: long, weight: nearTurn ? 0.75 : 1.45 },
         { heading: avg, weight: 0.70 }
       ]);
       if (longWeighted !== null) result = longWeighted;
     }
 
-    // Hysteres mot senaste stabila corridor-heading, så den inte flippar fram/tillbaka.
-    if (previous !== null && Math.abs(headingDelta(previous, result)) < 5.5) {
+    if (previous !== null && Math.abs(headingDelta(previous, result)) < (nearTurn ? 3.5 : 5.5)) {
       result = previous;
     }
 
@@ -1287,20 +1332,20 @@
     }
 
     const mobile = !isDesktopLayout();
-    let target = mobile ? 16.7 : 16.0;
+    let target = mobile ? 17.15 : 16.15;
 
     if (p && p.offRouteDistance > OFF_ROUTE_METERS) {
       // Vid felkörning: lite mer överblick tills ny rutt räknats fram.
-      target = mobile ? 16.3 : 15.7;
+      target = mobile ? 16.55 : 15.85;
     } else if (p) {
       const toTurn = nextCameraInstructionDistance(p.distanceAlong);
 
       if (Number.isFinite(toTurn) && toTurn <= 85) {
-        target = mobile ? 17.25 : 16.55;
+        target = mobile ? 17.55 : 16.65;
       } else if (Number.isFinite(toTurn) && toTurn <= 220) {
-        target = mobile ? 16.95 : 16.25;
+        target = mobile ? 17.30 : 16.35;
       } else if (Number.isFinite(toTurn) && toTurn >= 900) {
-        target = mobile ? 16.55 : 15.9;
+        target = mobile ? 16.95 : 16.0;
       }
     }
 
@@ -1400,25 +1445,25 @@
   }
 
 
-  function enterDrivingView() {
+  function enterDrivingView(options = {}) {
     const pos = state.userPos || getStartForRoute();
     if (!pos) return;
 
     const minZoom = isDesktopLayout() ? DRIVE_START_ZOOM_DESKTOP : DRIVE_START_ZOOM_MOBILE;
     const targetZoom = state.mapMode === "heading" && hasNativeMapRotation()
-      ? getHeadingUpTargetZoom(pos.lat, pos.lon)
+      ? Math.max(getHeadingUpTargetZoom(pos.lat, pos.lon), isDesktopLayout() ? 16.25 : 17.55)
       : Math.max(map.getZoom(), minZoom);
 
     // Räkna ut körläges-centrum med målzoomen och gör zoom+pan samtidigt.
-    // V6 använder även smart framför-vy så man ser mer åt färdriktningen.
+    // V6.6.8: starta körläget närmare vägen på telefon.
     map.invalidateSize();
     followUserPosition(pos.lat, pos.lon, { zoom: targetZoom, setView: true });
 
     const settleFollow = () => {
-      if (state.follow) followUserPosition(pos.lat, pos.lon, { duration: 0.22 });
+      if (state.follow) followUserPosition(pos.lat, pos.lon, { duration: options.returning ? 0.38 : 0.22 });
     };
     map.once("moveend", settleFollow);
-    window.setTimeout(settleFollow, 360);
+    window.setTimeout(settleFollow, options.returning ? 520 : 360);
   }
 
   function cloneRoute(route) {
@@ -1458,14 +1503,40 @@
     el.resumeFollowBtn.classList.remove("resume-follow-hiding");
   }
 
+  function enterManualMapMode() {
+    if (!state.navigating || !state.follow) return;
+    clearTimeout(state.manualMapModeTimer);
+    document.body.classList.add("manual-map-transition");
+    setFollowMode(false, false, { manualPan: true });
+    state.manualMapModeTimer = window.setTimeout(() => {
+      document.body.classList.remove("manual-map-transition");
+      document.body.classList.add("manual-map-mode");
+    }, 260);
+  }
+
+  function leaveManualMapMode() {
+    clearTimeout(state.manualMapModeTimer);
+    document.body.classList.remove("manual-map-mode");
+    document.body.classList.add("manual-map-returning");
+    window.setTimeout(() => {
+      document.body.classList.remove("manual-map-returning");
+    }, 420);
+  }
+
   function setFollowMode(on, showToast = true, options = {}) {
-    state.follow = Boolean(on);
+    const nextFollow = Boolean(on);
+    state.follow = nextFollow;
     el.followBtn.textContent = state.follow ? "🧭 Följ: på" : "🧭 Följ: av";
+
+    if (state.follow) {
+      leaveManualMapMode();
+    }
+
     updateResumeFollowButton({ delayHide: options.delayResumeHide });
     updateMapRotation(true);
 
     if (state.follow && state.userPos) {
-      enterDrivingView();
+      enterDrivingView({ returning: Boolean(options.delayResumeHide) });
     }
 
     if (showToast) toast(state.follow ? "Följläge på" : "Följläge av");
@@ -1695,7 +1766,7 @@
     state.isRouting = true;
     showRouteCard();
     el.routeTitle.textContent = options.reroute ? "Beräknar om rutt..." : "Beräknar smart A-traktorrutt...";
-    el.routeSubtitle.textContent = "Jämför bilväg mot kortare 30 km/h-rutter";
+    el.routeSubtitle.textContent = options.reroute ? "Letar lagligare väg framåt" : "Jämför enklare 30 km/h-rutter";
     setRouteMeta("");
     el.nextInstruction.classList.add("hidden");
     el.routeWarning.classList.add("hidden");
@@ -1703,19 +1774,40 @@
 
     try {
       let result = null;
+      let routeStart = start;
 
       try {
-        result = await getSmartAtraktorRoute(start, dest);
+        const starts = options.reroute ? buildRerouteStartCandidates(start) : [start];
+        const settled = await Promise.allSettled(starts.map(candidate =>
+          getSmartAtraktorRoute(candidate, dest, { reroute: Boolean(options.reroute) })
+            .then(r => ({ ...r, routeStart: candidate }))
+        ));
+
+        const valid = settled
+          .map(res => res.status === "fulfilled" ? res.value : null)
+          .filter(Boolean)
+          .filter(r => r.route && r.route.coords && r.route.coords.length);
+
+        if (valid.length) {
+          valid.forEach(r => {
+            r.route.score = (r.route.score || 0) + (r.routeStart.forwardMeters || 0) * 0.22;
+          });
+          valid.sort((a, b) => (a.route.score || 0) - (b.route.score || 0));
+          result = valid[0];
+          routeStart = result.routeStart || start;
+        }
+
         state.routeUsedFallback = false;
-    state.turnLock = null;
-    state.turnLockReleasedKey = "";
-    state.navMaxDistanceAlong = 0;
+        state.turnLock = null;
+        state.turnLockReleasedKey = "";
+        state.navMaxDistanceAlong = 0;
       } catch (err) {
         console.warn("Smart Valhalla routing failed, using OSRM fallback", err);
       }
 
       if (!result || !result.route || !result.route.coords.length) {
-        const fallback = await routeOsrmFallback(start, dest);
+        const fallbackStart = options.reroute ? (buildRerouteStartCandidates(start)[0] || start) : start;
+        const fallback = await routeOsrmFallback(fallbackStart, dest);
         result = {
           route: fallback,
           chosen: {
@@ -1724,8 +1816,10 @@
             useHighways: null
           },
           alternatives: [],
-          reason: "Valhalla svarade inte, så appen använder reservrutt."
+          reason: "Valhalla svarade inte, så appen använder reservrutt.",
+          routeStart: fallbackStart
         };
+        routeStart = fallbackStart;
         state.routeUsedFallback = true;
       }
 
@@ -1743,9 +1837,6 @@
         state.originalStart = clonePlace(start);
       }
 
-      // Avancerad jämförelse:
-      // Spara blå bilrutt, men visa den inte förrän användaren öppnar avancerad info.
-      // V6.1: den ursprungliga OSRM/bilrutten sparas separat så den inte tappas vid omruttning.
       const currentCarRouteCoords =
         result.osrmCar && result.osrmCar.coords && result.osrmCar.coords.length
           ? result.osrmCar.coords
@@ -1762,7 +1853,6 @@
       }
 
       drawCarRoute(null);
-
       drawRoute(route.coords);
       if (el.stepsSheet.classList.contains("hidden")) clearStepMarkers();
 
@@ -1786,10 +1876,9 @@
         setRouteInfoText(basicRouteSafetyText(), buildSmartRouteMessage(result));
       }
 
-      fitRoute(start, dest, route.coords);
-      // Kör en extra passning när ruttkortets riktiga höjd är klar.
+      fitRoute(routeStart, dest, route.coords);
       window.setTimeout(() => {
-        if (!state.navigating && state.route === route) fitRoute(start, dest, route.coords);
+        if (!state.navigating && state.route === route) fitRoute(routeStart, dest, route.coords);
       }, 80);
       updateFavoriteButton();
       setRouteCompactMode();
@@ -1829,10 +1918,7 @@
     });
   }
 
-  async function getSmartAtraktorRoute(start, dest) {
-    // V3.8 beta:
-    // Lägg till OSRM:s vanliga bilrutt som egen kandidat.
-    // Den visas i blått och får också vara med i 30 km/h-jämförelsen.
+  async function getSmartAtraktorRoute(start, dest, context = {}) {
     const profiles = [
       {
         id: "car_like",
@@ -1844,13 +1930,13 @@
         description: "Valhalla bil-liknande rutt"
       },
       {
-        id: "atraktor_short",
-        name: "Kort 30-väg",
-        summary: "Kortare 30 km/h-väg",
-        useHighways: 0.30,
-        distancePreference: 1,
-        profilePenalty: 0,
-        description: "prioriterar kortare väg för 30 km/h"
+        id: "atraktor_comfort",
+        name: "Komfort 30-väg",
+        summary: "Komfort 30 km/h-väg",
+        useHighways: 0.55,
+        distancePreference: 0.25,
+        profilePenalty: -35,
+        description: "prioriterar rakare och enklare körväg"
       },
       {
         id: "atraktor_direct",
@@ -1860,6 +1946,15 @@
         distancePreference: 0.7,
         profilePenalty: 0,
         description: "balanserar direkt väg och kort distans"
+      },
+      {
+        id: "atraktor_short",
+        name: "Kort 30-väg",
+        summary: "Kortare 30 km/h-väg",
+        useHighways: 0.30,
+        distancePreference: 1,
+        profilePenalty: 35,
+        description: "prioriterar kortare väg för 30 km/h"
       }
     ];
 
@@ -1888,44 +1983,54 @@
     const carLike = osrmCar || alternatives.find(r => r.profile.id === "car_like") || alternatives[0];
 
     for (const route of alternatives) {
-      route.score = scoreThirtyKmhRoute(route, minDistance, carLike);
+      route.comfort = analyzeRouteComfort(route);
+      route.score = scoreThirtyKmhRoute(route, minDistance, carLike, { ...context, start });
     }
 
     alternatives.sort((a, b) => a.score - b.score);
 
     let chosen = alternatives[0];
 
-    // Om OSRM-bilrutten är både tydligt kortare/enklare i 30 km/h, låt den vinna.
-    // Det hjälper fall där Valhalla inte föreslår t.ex. vägen via Linneryd men OSRM gör det.
-    if (osrmCar) {
-      const bestNonOsrm = alternatives.find(r => r.profile.id !== "osrm_car");
-      if (bestNonOsrm) {
-        const savedMeters = bestNonOsrm.distance - osrmCar.distance;
-        const savedMinutes = savedMeters / 1000 / 30 * 60;
-        const fewerOrSimilarTurns = osrmCar.turnCount <= bestNonOsrm.turnCount + 2;
-
-        if (savedMinutes >= 1.5 && fewerOrSimilarTurns) {
-          chosen = osrmCar;
-          chosen.smartReason = `Valde OSRM-bilrutten eftersom den verkar kortare/enklare även vid 30 km/h.`;
-        }
-      }
-    }
-
-    // Kortare kandidat kan vinna även om den inte är OSRM.
+    // V6.6.8: välj bara tydligt kortare väg om den inte är klart jobbigare.
     const reference = carLike;
     const shorter = alternatives
-      .filter(r => r.distance < reference.distance - 250)
+      .filter(r => r.distance < reference.distance - 350)
       .sort((a, b) => a.score - b.score)[0];
 
     if (shorter && chosen.profile.id !== "osrm_car") {
       const savedMeters = reference.distance - shorter.distance;
       const extraTurns = Math.max(0, shorter.turnCount - reference.turnCount);
       const savedMinutes = savedMeters / 1000 / 30 * 60;
+      const comfortGap = (shorter.comfort?.comfortPenalty || 0) - (reference.comfort?.comfortPenalty || 0);
 
-      if (savedMinutes >= 2 || (savedMinutes >= 1 && extraTurns <= 2)) {
+      if ((savedMinutes >= 2.5 && comfortGap < 80) || (savedMinutes >= 1.4 && extraTurns <= 1 && comfortGap < 35)) {
         chosen = shorter;
-        chosen.smartReason = `Valde kortare väg som sparar cirka ${Math.round(savedMinutes)} min vid 30 km/h.`;
+        chosen.smartReason = `Valde kortare väg som sparar cirka ${Math.round(savedMinutes)} min utan att bli tydligt krångligare.`;
       }
+    }
+
+    // OSRM-bilrutten kan vinna om den är både kortare/enklare, men inte om den kräver tydlig U-sväng vid omruttning.
+    if (osrmCar) {
+      const bestNonOsrm = alternatives.find(r => r.profile.id !== "osrm_car");
+      if (bestNonOsrm) {
+        const savedMeters = bestNonOsrm.distance - osrmCar.distance;
+        const savedMinutes = savedMeters / 1000 / 30 * 60;
+        const fewerOrSimilarTurns = osrmCar.turnCount <= bestNonOsrm.turnCount + 1;
+        const notWorseComfort = (osrmCar.comfort?.comfortPenalty || 0) <= (bestNonOsrm.comfort?.comfortPenalty || 0) + 45;
+        const legalEnough = !context.reroute || rerouteStartPenalty(osrmCar, start) < 180;
+
+        if (savedMinutes >= 1.8 && fewerOrSimilarTurns && notWorseComfort && legalEnough) {
+          chosen = osrmCar;
+          chosen.smartReason = `Valde OSRM-bilrutten eftersom den verkar kortare och minst lika enkel vid 30 km/h.`;
+        }
+      }
+    }
+
+    if (!chosen.smartReason) {
+      const c = chosen.comfort || {};
+      chosen.smartReason = context.reroute
+        ? "Valde omruttning som prioriterar fortsatt färdriktning, färre U-svängar och enklare väg."
+        : `Valde rutten med bäst 30 km/h-komfort: färre onödiga svängar, rakare väg och rimlig distans.`;
     }
 
     return {
@@ -1934,33 +2039,169 @@
       alternatives,
       carLike,
       osrmCar,
-      reason: chosen.smartReason || "Valde rutten med bäst 30 km/h-balans mellan kort distans och få onödiga svängar."
+      reason: chosen.smartReason
     };
   }
 
-  function scoreThirtyKmhRoute(route, minDistance, carLike) {
+  function analyzeRouteComfort(route) {
+    const coords = route?.coords || [];
+    const cumulative = route?.cumulative || buildCumulative(coords);
+    if (coords.length < 3) {
+      return { curvePenalty: 0, shortSegmentPenalty: 0, directnessPenalty: 0, hairpinPenalty: 0, comfortPenalty: 0 };
+    }
+
+    let curvePenalty = 0;
+    let shortSegmentPenalty = 0;
+    let hairpinPenalty = 0;
+    let bearingSamples = 0;
+
+    for (let i = 1; i < coords.length - 1; i++) {
+      const a = { lat: coords[i - 1][0], lon: coords[i - 1][1] };
+      const b = { lat: coords[i][0], lon: coords[i][1] };
+      const c = { lat: coords[i + 1][0], lon: coords[i + 1][1] };
+      const ab = haversine(a, b);
+      const bc = haversine(b, c);
+      if (ab < 4 || bc < 4) continue;
+      const h1 = bearingBetween(a, b);
+      const h2 = bearingBetween(b, c);
+      if (h1 === null || h2 === null) continue;
+      const d = Math.abs(headingDelta(h1, h2));
+      if (d > 10) curvePenalty += Math.max(0, d - 10) * Math.min(1.8, (ab + bc) / 70);
+      if (d > 120 && ab < 85 && bc < 85) hairpinPenalty += 1;
+      if (ab < 55 && d > 22) shortSegmentPenalty += 1;
+      bearingSamples += 1;
+    }
+
+    const total = route.distance || cumulative[cumulative.length - 1] || 0;
+    const straight = haversine(
+      { lat: coords[0][0], lon: coords[0][1] },
+      { lat: coords[coords.length - 1][0], lon: coords[coords.length - 1][1] }
+    );
+    const directness = straight > 0 ? total / straight : 1;
+    const directnessPenalty = Math.max(0, directness - 1.23) * 150;
+
+    const comfortPenalty =
+      curvePenalty * 0.62 +
+      shortSegmentPenalty * 10 +
+      hairpinPenalty * 65 +
+      directnessPenalty;
+
+    return {
+      curvePenalty,
+      shortSegmentPenalty,
+      directnessPenalty,
+      hairpinPenalty,
+      comfortPenalty,
+      bearingSamples
+    };
+  }
+
+  function initialRouteBearing(route) {
+    const coords = route?.coords || [];
+    if (coords.length < 2) return null;
+    const a = { lat: coords[0][0], lon: coords[0][1] };
+    for (let i = 1; i < Math.min(coords.length, 8); i++) {
+      const b = { lat: coords[i][0], lon: coords[i][1] };
+      if (haversine(a, b) > 12) return bearingBetween(a, b);
+    }
+    return null;
+  }
+
+  function rerouteStartPenalty(route, start) {
+    const heading = normalizeHeading(start?.heading ?? state.displayHeading ?? state.gpsHeading ?? state.userHeading);
+    if (heading === null) return 0;
+
+    const first = initialRouteBearing(route);
+    if (first === null) return 0;
+
+    const delta = Math.abs(headingDelta(heading, first));
+    let penalty = 0;
+
+    // Lagligare omruttning: direkt bakåt/U-sväng ska nästan aldrig vinna.
+    if (delta > 150) penalty += 780;
+    else if (delta > 120) penalty += 430;
+    else if (delta > 90) penalty += 210;
+    else if (delta > 65) penalty += 80;
+
+    const firstStep = (route.instructions || [])[0];
+    const firstText = String(firstStep?.text || "").toLowerCase();
+    const firstRoad = String(firstStep?.road || "").toLowerCase();
+    if ((firstText.includes("vänd") || firstText.includes("u-turn") || firstText.includes("uturn")) && delta > 90) {
+      penalty += 900;
+    }
+    if (/service|driveway|private|track|tomt|gård|garage|parkering/.test(firstRoad)) {
+      penalty += 320;
+    }
+
+    return penalty;
+  }
+
+  function routePointFromHeading(origin, heading, meters) {
+    const h = normalizeHeading(heading);
+    if (!origin || h === null) return null;
+    const R = 6371000;
+    const brng = h * Math.PI / 180;
+    const lat1 = origin.lat * Math.PI / 180;
+    const lon1 = origin.lon * Math.PI / 180;
+    const d = meters / R;
+
+    const lat2 = Math.asin(
+      Math.sin(lat1) * Math.cos(d) +
+      Math.cos(lat1) * Math.sin(d) * Math.cos(brng)
+    );
+    const lon2 = lon1 + Math.atan2(
+      Math.sin(brng) * Math.sin(d) * Math.cos(lat1),
+      Math.cos(d) - Math.sin(lat1) * Math.sin(lat2)
+    );
+
+    return {
+      lat: lat2 * 180 / Math.PI,
+      lon: lon2 * 180 / Math.PI,
+      label: `Framåt ${Math.round(meters)} m`,
+      heading: h,
+      forwardCandidate: true,
+      forwardMeters: meters
+    };
+  }
+
+  function buildRerouteStartCandidates(start) {
+    const heading = normalizeHeading(state.displayHeading ?? state.gpsHeading ?? state.userHeading);
+    if (heading === null || !state.navigating) return [start];
+
+    const candidates = [{ ...start, heading, forwardCandidate: false, forwardMeters: 0 }];
+    [70, 130, 220].forEach(m => {
+      const p = routePointFromHeading(start, heading, m);
+      if (p) candidates.push(p);
+    });
+    return candidates;
+  }
+
+  function scoreThirtyKmhRoute(route, minDistance, carLike, context = {}) {
     const extraDistanceVsBest = Math.max(0, route.distance - minDistance);
     const extraTurnsVsCar = Math.max(0, route.turnCount - carLike.turnCount);
     const savesDistanceVsCar = Math.max(0, carLike.distance - route.distance);
+    const comfort = route.comfort || analyzeRouteComfort(route);
+    route.comfort = comfort;
 
     // A-traktor-tid = distans / 30 km/h.
-    // Eftersom maxhastigheten är ungefär samma överallt blir distans viktigast.
     const atraktorTimeSeconds = route.distance / (30 / 3.6);
 
-    // Svängar straffas lätt. Detta ska undvika onödiga kringelkrokar, men inte döda bra kortare vägar.
-    const turnPenaltySeconds = route.turnCount * 12 + extraTurnsVsCar * 16;
+    // V6.6.8: fler svängar, korta segment och krokig geometri straffas tydligare.
+    const turnPenaltySeconds = route.turnCount * 18 + extraTurnsVsCar * 24;
+    const comfortPenaltySeconds = clamp(comfort.comfortPenalty || 0, 0, 420);
 
-    // Extra distans jämfört med kortaste kandidat kostar.
-    const extraDistancePenaltySeconds = extraDistanceVsBest / (30 / 3.6) * 0.35;
+    // Extra distans jämfört med kortaste kandidat kostar, men inte så hårt att en
+    // krokig genväg automatiskt vinner.
+    const extraDistancePenaltySeconds = extraDistanceVsBest / (30 / 3.6) * 0.30;
 
-    // Kortare än referens-bilrutten får bonus.
-    const shorterBonusSeconds = savesDistanceVsCar / (30 / 3.6) * 0.18;
+    // Kortare än referens-bilrutten får mindre bonus än tidigare, för att inte välja
+    // jobbiga småvägsgenvägar bara för några hundra meter.
+    const shorterBonusSeconds = savesDistanceVsCar / (30 / 3.6) * 0.10;
 
-    // OSRM-bilrutt får bara en minimal försiktighetskostnad, eftersom den kan innehålla vägar som Valhalla försöker undvika.
-    // Primary/riksväg/länsväg straffas inte separat.
-    const sourcePenalty = route.profile.id === "osrm_car" ? 35 : 0;
+    const sourcePenalty = route.profile.id === "osrm_car" ? 25 : 0;
+    const reroutePenalty = context.reroute ? rerouteStartPenalty(route, context.start || {}) : 0;
 
-    return atraktorTimeSeconds + turnPenaltySeconds + extraDistancePenaltySeconds - shorterBonusSeconds + sourcePenalty + route.profile.profilePenalty;
+    return atraktorTimeSeconds + turnPenaltySeconds + comfortPenaltySeconds + extraDistancePenaltySeconds - shorterBonusSeconds + sourcePenalty + reroutePenalty + route.profile.profilePenalty;
   }
 
   function buildSmartRouteMessage(result) {
@@ -1968,7 +2209,7 @@
     const chosen = result.route;
 
     if (!chosen) {
-      return "Optimerad för 30 km/h: kortare rimlig väg prioriteras före bilens snabbaste väg. Kontrollera alltid skyltning.";
+      return "Optimerad för 30 km/h: enklare och rakare körväg prioriteras före kortaste genväg. Kontrollera alltid skyltning.";
     }
 
     const parts = [`30maps beta: ${result.reason}`];
@@ -1976,20 +2217,27 @@
     if (alts.length > 1) {
       const summary = alts
         .slice()
-        .sort((a, b) => a.distance - b.distance)
-        .map(r => `${r.profile.name}: ${(r.distance/1000).toFixed(1)} km, ${r.turnCount} svängar`)
+        .sort((a, b) => a.score - b.score)
+        .map(r => `${r.profile.name}: ${(r.distance/1000).toFixed(1)} km, ${r.turnCount} svängar, komfort ${Math.round(r.comfort?.comfortPenalty || 0)}`)
         .join(" · ");
       parts.push(summary);
     }
 
-    parts.push("Blå linje = OSRM:s vanliga bilrutt. Grön linje = vald 30 km/h-rutt. Riksväg/länsväg straffas inte automatiskt. Om OSRM-bilrutten är kortare/enklare vid 30 km/h kan den väljas. Kontrollera alltid skyltning.");
+    parts.push("Blå linje = OSRM:s vanliga bilrutt. Grön linje = vald 30 km/h-rutt. V6.6.8 prioriterar rakare/enklare vägar, undviker onödiga småvägsgenvägar och försöker göra omruttning utan direkt U-sväng. Kontrollera alltid skyltning.");
     return parts.join(" ");
   }
 
   async function routeValhalla(start, dest, profile = { id: "balanced", name: "Balanserad", summary: "30 km/h-rutt", useHighways: 0.25, profilePenalty: 220 }) {
+    const startLocation = { lat: start.lat, lon: start.lon, type: "break" };
+    if (Number.isFinite(start.heading)) {
+      startLocation.heading = normalizeHeading(start.heading);
+      startLocation.heading_tolerance = 55;
+      startLocation.minimum_reachability = 40;
+    }
+
     const payload = {
       locations: [
-        { lat: start.lat, lon: start.lon, type: "break" },
+        startLocation,
         { lat: dest.lat, lon: dest.lon, type: "break" }
       ],
       costing: "auto",
@@ -1999,6 +2247,8 @@
           use_highways: profile.useHighways,
           use_tolls: 0,
           use_ferry: 0.15,
+          use_tracks: 0.02,
+          service_penalty: 180,
           country_crossing_penalty: 2000
         }
       },
@@ -2083,7 +2333,8 @@
   }
 
   async function routeOsrmRaw(start, dest) {
-    const url = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${dest.lon},${dest.lat}?overview=full&geometries=geojson&steps=true`;
+    const bearing = Number.isFinite(start.heading) ? `&bearings=${Math.round(normalizeHeading(start.heading))},70;` : "";
+    const url = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${dest.lon},${dest.lat}?overview=full&geometries=geojson&steps=true${bearing}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error("Routingtjänsten svarar inte");
     const data = await res.json();
@@ -2403,6 +2654,7 @@
     showRouteCard();
     showOriginalRouteAfterArrival();
     setRouteCompactMode();
+    releaseWakeLock();
     toast("Du är framme");
   }
 
@@ -2784,6 +3036,7 @@
     updateResumeFollowButton();
     enterDrivingView();
     updateNavigationFromPosition();
+    requestWakeLock();
     if (showToast) toast("Navigation startad");
   }
 
@@ -2809,6 +3062,7 @@
     setRouteCompactMode();
     el.navTop.classList.add("hidden");
     el.navBottom.classList.add("hidden");
+    releaseWakeLock();
     toast("Navigation avslutad");
   }
 
@@ -2929,8 +3183,8 @@
     state.lastRerouteAt = now;
     state.offRouteHits = 0;
 
-    showNavStatus("rerouting", "Räknar om...", "Hittar ny väg", "", REROUTE_STATUS_MS);
-    toast(`Utanför rutten (${fmtDist(offBy)}). Beräknar om...`);
+    showNavStatus("rerouting", "Räknar om...", "Letar laglig väg framåt", "", REROUTE_STATUS_MS);
+    toast(`Utanför rutten (${fmtDist(offBy)}). Letar väg framåt...`);
 
     if (state.demoActive) {
       state.demoRerouting = true;
@@ -3167,6 +3421,7 @@
     setRouteCompactMode();
     el.navTop.classList.add("hidden");
     el.navBottom.classList.add("hidden");
+    releaseWakeLock();
   }
 
   function showTapSheet(lat, lon) {
@@ -3782,7 +4037,7 @@
     document.body.classList.remove("demo-active");
 
     if (el.betaBadge) {
-      el.betaBadge.textContent = "BETA · v6.6.7";
+      el.betaBadge.textContent = "BETA · v6.6.8";
       el.betaBadge.title = "Klicka för att dölja. Håll inne för testresa.";
     }
 
@@ -3935,13 +4190,19 @@
 
     map.on("dragstart", () => {
       if (state.follow) {
-        setFollowMode(false, false);
+        enterManualMapMode();
       }
 
       // Auto-minimera bara på telefon/liten skärm när kartan dras.
       // På dator/större skärm ska sök/favoriter vara kvar öppen.
       if (!isDesktopLayout()) {
         setPanelCollapsed(true);
+      }
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && state.navigating && !state.arrivedHandled) {
+        requestWakeLock();
       }
     });
 

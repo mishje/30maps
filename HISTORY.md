@@ -1,5 +1,16 @@
 # 30maps versionshistorik
 
+## V6.6.8
+- Gör inställningsrutan tydligare: “Spara bränsle”, “Stäng av bränsle” och “Sparas direkt” för design/kartläge.
+- Ta bort extra text bredvid versionsnumret, inklusive “Smart fallback”.
+- Lägg Wake Lock-försök medan navigation är aktiv.
+- Lägg mjukare övergång från körläge till manuell kartdragning och tillbaka.
+- Starta körläge mer inzoomat på telefon.
+- Lägg turn-gate i heading-up så kartan inte roterar för tidigt före tydlig sväng.
+- Lägg komfortpoäng i ruttvalet: rakare/enklare väg prioriteras och kurviga/svängiga genvägar straffas.
+- Gör omruttning mer rimlig genom att använda färdriktning, straffa U-sväng och testa framåtpunkter.
+- Smart körvy påverkas inte.
+
 ## V6.6.7
 - Gör heading-up-rotationen mjukare när kartan väl roterar.
 - Separera target-bearing från faktisk map-bearing.

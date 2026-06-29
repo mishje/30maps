@@ -2171,11 +2171,7 @@ body:not(.heading-up-active) #map .leaflet-map-pane{
 }
 
 /* Om leaflet-rotate inte laddas används Smart körvy som fallback. */
-body.heading-up-fallback .beta-badge::after{
-  content:" · Smart fallback";
-  opacity:.72;
-  font-size:.78em;
-}
+body.heading-up-fallback .beta-badge::after{content:"";display:none!important;}
 
 
 /* =========================
@@ -2225,4 +2221,63 @@ body.heading-up-active .user-dot-wrap{
 
 body.heading-up-active .user-dot-wrap{
   transition:transform .38s linear!important;
+}
+
+
+/* =========================
+   V6.6.8: inställningar, körläge och ren badge
+   ========================= */
+
+body.heading-up-fallback .beta-badge::after{
+  content:""!important;
+  display:none!important;
+}
+
+.settings-save-note{
+  display:inline-flex;
+  align-self:flex-start;
+  margin-top:-3px;
+  padding:4px 8px;
+  border-radius:999px;
+  background:rgba(30,136,255,.10);
+  color:#0b62c4;
+  font-size:11px;
+  font-weight:900;
+}
+
+body.dark .settings-save-note{
+  background:rgba(255,255,255,.12);
+  color:#dbeafe;
+}
+
+body.manual-map-transition .nav-top,
+body.manual-map-mode .nav-top{
+  opacity:.82;
+  transform:translateY(-2px) scale(.985);
+  transition:opacity .22s ease, transform .22s ease;
+}
+
+body.manual-map-transition .nav-bottom,
+body.manual-map-mode .nav-bottom{
+  opacity:.9;
+  transition:opacity .22s ease;
+}
+
+.resume-follow-btn{
+  transition:opacity .24s ease, transform .28s cubic-bezier(.18,1.15,.32,1);
+}
+
+body.manual-map-transition .resume-follow-btn:not(.hidden),
+body.manual-map-mode .resume-follow-btn:not(.hidden){
+  animation:resumeFollowInV668 .28s cubic-bezier(.18,1.15,.32,1) both;
+}
+
+body.manual-map-returning .resume-follow-btn{
+  opacity:0;
+  transform:translateX(-50%) translateY(8px) scale(.94);
+}
+
+@keyframes resumeFollowInV668{
+  from{opacity:0;transform:translateX(-50%) translateY(12px) scale(.94)}
+  to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}
 }
