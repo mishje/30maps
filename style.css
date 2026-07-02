@@ -2281,3 +2281,16 @@ body.manual-map-returning .resume-follow-btn{
   from{opacity:0;transform:translateX(-50%) translateY(12px) scale(.94)}
   to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}
 }
+
+
+/* =========================
+   V6.6.9: markör och startvy
+   ========================= */
+
+.user-dot-wrap{
+  will-change:transform;
+}
+
+body:not(.navigating) .user-dot-wrap.smart-heading{
+  filter:none;
+}

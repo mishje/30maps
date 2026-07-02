@@ -1,5 +1,17 @@
 # 30maps versionshistorik
 
+## V6.6.9
+- Ändra fordonsmarkörens pil så den i första hand visar verklig GPS-/rörelseriktning, inte ruttens riktning.
+- Lägg snap-to-route för markörens position när GPS är nära aktiv rutt.
+- Lägg smooth marker movement utan eftersläpning: små rörelser glider, stora hopp/off-route hoppar ikapp.
+- Sätt följläge av från start, men centrera ändå kartan en gång på första GPS-positionen.
+- Placera första GPS-vyn bättre under sök-/favoritpanelen på telefon.
+- Gör startvyn lite mer utzoomad på telefon och dator.
+- Lägg fler ruttkandidater: OSRM alternatives=true, flera OSRM-rutter, extra Valhalla-profil och nord/syd-korridorer.
+- Behåll snabbaste bilrutt separat för avancerat-läget; grön huvudrutt är fortfarande epa/A-traktor-valet.
+- Lägg skalad komfortlogik där korta rutter kräver större tidsvinst för krångligare väg, medan långa rutter låter faktisk tidsbesparing väga mer.
+- Fortsätt bygga vidare på lagligare omruttning från V6.6.8.
+
 ## V6.6.8
 - Gör inställningsrutan tydligare: “Spara bränsle”, “Stäng av bränsle” och “Sparas direkt” för design/kartläge.
 - Ta bort extra text bredvid versionsnumret, inklusive “Smart fallback”.
